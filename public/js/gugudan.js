@@ -8,11 +8,18 @@ function shuffle(list) {
   return list;
 }
 
-// dan이 2~9면 그 단만, 0이면 전체에서 섞어 낸다. 같은 문제가 연달아 나오지 않게 한다.
-export function makeQuestions(dan) {
+// 구구단(multiply)과, 구구단을 거꾸로 푼 나머지 없는 나눗셈(divide)을 만든다.
+function makeQuestion(mode, a, b) {
+  return mode === 'divide'
+    ? { text: `${a * b} ÷ ${a} =`, answer: b }
+    : { text: `${a} × ${b} =`, answer: a * b };
+}
+
+// dan이 2~9면 그 수만, 0이면 전체에서 섞어 낸다. 같은 문제가 연달아 나오지 않게 한다.
+export function makeQuestions(dan, mode = 'multiply') {
   const pool = [];
   for (const a of dan ? [dan] : [2, 3, 4, 5, 6, 7, 8, 9]) {
-    for (let b = 1; b <= 9; b++) pool.push({ a, b, answer: a * b });
+    for (let b = 1; b <= 9; b++) pool.push(makeQuestion(mode, a, b));
   }
   const questions = shuffle([...pool]).slice(0, QUESTION_COUNT);
   while (questions.length < QUESTION_COUNT) {
@@ -23,8 +30,8 @@ export function makeQuestions(dan) {
   return questions;
 }
 
-export function resultMessage(correct) {
-  if (correct === QUESTION_COUNT) return '모두 맞았어요! 구구단 박사님이에요!';
+export function resultMessage(correct, mode = 'multiply') {
+  if (correct === QUESTION_COUNT) return `모두 맞았어요! ${mode === 'divide' ? '나눗셈' : '구구단'} 박사님이에요!`;
   if (correct >= 8) return '정말 잘했어요!';
   if (correct >= 5) return '잘했어요! 조금만 더 해 볼까요?';
   return '끝까지 푼 것이 멋져요! 한 번 더 해 봐요!';

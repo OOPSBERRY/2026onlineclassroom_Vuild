@@ -5,9 +5,9 @@ const RIGHT_DELAY = 800;
 const WRONG_DELAY = 1700;
 const MAX_DIGITS = 2;
 
-// 구구단 창. 문제와 점수는 내 화면에만 있고 서버로 보내지 않는다.
+// 구구단과 나눗셈 창. 문제와 점수는 내 화면에만 있고 서버로 보내지 않는다.
 export function setupStudy({ sound, onFinish }) {
-  const state = { dan: 0, questions: [], index: 0, correct: 0, input: '', locked: false, timer: null };
+  const state = { mode: 'multiply', dan: 0, questions: [], index: 0, correct: 0, input: '', locked: false, timer: null };
 
   const show = (stage) => {
     for (const id of ['study-pick', 'study-quiz', 'study-result']) $(id).hidden = id !== stage;
@@ -16,7 +16,7 @@ export function setupStudy({ sound, onFinish }) {
   function renderQuestion() {
     const q = state.questions[state.index];
     $('study-progress').textContent = `${state.index + 1} / ${QUESTION_COUNT}`;
-    $('study-question').textContent = `${q.a} × ${q.b} =`;
+    $('study-question').textContent = q.text;
     $('study-input').textContent = state.input || '?';
     $('study-feedback').textContent = '';
     $('study-feedback').className = 'study-feedback';
@@ -25,7 +25,7 @@ export function setupStudy({ sound, onFinish }) {
 
   function start(dan) {
     clearTimeout(state.timer);
-    Object.assign(state, { dan, questions: makeQuestions(dan), index: 0, correct: 0, input: '', locked: false });
+    Object.assign(state, { dan, questions: makeQuestions(dan, state.mode), index: 0, correct: 0, input: '', locked: false });
     show('study-quiz');
     renderQuestion();
   }
@@ -67,7 +67,7 @@ export function setupStudy({ sound, onFinish }) {
 
   function finish() {
     $('study-score').textContent = `${QUESTION_COUNT}개 중 ${state.correct}개 맞았어요`;
-    $('study-message').textContent = resultMessage(state.correct);
+    $('study-message').textContent = resultMessage(state.correct, state.mode);
     show('study-result');
     sound.fanfare();
     celebrate();
@@ -101,13 +101,29 @@ export function setupStudy({ sound, onFinish }) {
     show('study-pick');
   }
 
-  $('study-dans').replaceChildren(...[2, 3, 4, 5, 6, 7, 8, 9, 0].map((dan) => {
-    const button = document.createElement('button');
-    button.className = dan ? 'study-dan' : 'study-dan all';
-    button.textContent = dan ? `${dan}단` : '전체 섞기';
-    button.onclick = () => start(dan);
-    return button;
-  }));
+  function renderPick() {
+    const dividing = state.mode === 'divide';
+    $('study-lead').textContent = dividing ? '어떤 수로 나눠 볼까요?' : '몇 단을 풀어 볼까요?';
+    for (const button of document.querySelectorAll('[data-study-mode]')) {
+      button.setAttribute('aria-pressed', button.dataset.studyMode === state.mode);
+    }
+    $('study-dans').replaceChildren(...[2, 3, 4, 5, 6, 7, 8, 9, 0].map((dan) => {
+      const button = document.createElement('button');
+      button.className = dan ? 'study-dan' : 'study-dan all';
+      if (!dan) button.textContent = '전체 섞기';
+      else button.textContent = dividing ? `÷ ${dan}` : `${dan}단`;
+      button.onclick = () => start(dan);
+      return button;
+    }));
+  }
+  for (const button of document.querySelectorAll('[data-study-mode]')) {
+    button.onclick = () => {
+      state.mode = button.dataset.studyMode;
+      renderPick();
+    };
+  }
+  renderPick();
+
   $('study-keys').replaceChildren(...[1, 2, 3, 4, 5, 6, 7, 8, 9, 'erase', 0, 'submit'].map((key) => {
     const button = document.createElement('button');
     if (key === 'erase') {

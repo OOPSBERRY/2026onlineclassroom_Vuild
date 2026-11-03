@@ -493,6 +493,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .study-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .study-head h2 { margin: 0; font-size: 19px; font-weight: 700; }
 .study-lead { margin: 4px 0 14px; font-size: 15px; color: var(--cream-dim); }
+.study-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 6px 0 12px; padding: 4px; border-radius: 14px; background: rgba(255, 255, 255, 0.07); }
+.study-mode { height: 42px; border-radius: 11px; font-size: 16px; font-weight: 700; color: var(--cream-dim); }
+.study-mode:hover { color: var(--cream); }
+.study-mode[aria-pressed="true"] { background: rgba(247, 221, 114, 0.18); color: var(--chalk-yellow); }
 .study-dans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .study-dan {
   height: 52px;

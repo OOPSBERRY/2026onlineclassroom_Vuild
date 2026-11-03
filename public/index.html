@@ -109,14 +109,18 @@
 
   <section id="study-dialog" class="glass study-dialog" role="dialog" aria-labelledby="study-title" hidden>
     <div class="study-head">
-      <h2 id="study-title">구구단 공부</h2>
-      <button id="study-close" class="icon-btn" aria-label="구구단 닫기">
+      <h2 id="study-title">공부하기</h2>
+      <button id="study-close" class="icon-btn" aria-label="공부하기 닫기">
         <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
       </button>
     </div>
 
     <div id="study-pick">
-      <p class="study-lead">몇 단을 풀어 볼까요?</p>
+      <div class="study-modes">
+        <button class="study-mode" data-study-mode="multiply">구구단</button>
+        <button class="study-mode" data-study-mode="divide">나눗셈</button>
+      </div>
+      <p id="study-lead" class="study-lead"></p>
       <div id="study-dans" class="study-dans"></div>
     </div>
 

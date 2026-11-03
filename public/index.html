@@ -36,7 +36,8 @@
         <svg class="chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
       </button>
     </div>
-    <span id="room-count" class="count" title="지금 접속한 사람 수">1/30</span>
+    <span id="room-count" class="count" title="지금 접속한 사람 수">1/25</span>
+    <span id="site-stats" class="site-stats" title="대략적인 이용자 수예요. 숫자가 바뀌는 데 시간이 걸릴 수 있어요." hidden></span>
   </header>
 
   <section id="room-dialog" class="glass room-dialog" role="dialog" aria-labelledby="room-dialog-title" hidden>
@@ -233,6 +234,9 @@
     <button id="btn-to-entry" class="text-btn">다른 교실 고르기</button>
   </div>
 
+  <!-- 방문 집계. 반 주소가 달라도 사이트 한 곳으로 묶어 센다. localhost는 GoatCounter가 세지 않는다. -->
+  <script>window.goatcounter = { path: '/' };</script>
+  <script data-goatcounter="https://minfp-online-classroom.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
   <script src="vendor/qrcode.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>

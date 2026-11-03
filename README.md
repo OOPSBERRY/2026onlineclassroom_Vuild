@@ -28,6 +28,7 @@ npm start
 - `public/js/data.js`: 반 정원, 닉네임 단어, 말풍선 문장
 - 반 운영: 자습 1반과 추억 1반은 늘 있고, 25명이 차면 서버가 다음 반을 엽니다. 나중에 연 반은 1분 넘게 비면 닫힙니다.
 - 글꼴: Pretendard (`public/fonts`, SIL Open Font License)
+- 이용자 수: GoatCounter(`minfp-online-classroom`)로 세고 왼쪽 위에 오늘/전체를 표시합니다. 숫자는 최대 4시간 늦을 수 있습니다.
 - `public/js/schedule.js`: 모두 같은 시계로 도는 40분 수업 + 10분 쉬는 시간 (주소에 `?demo=1`을 붙이면 40초 + 10초)
 
 서버 없이 정적 호스팅에 올리면 혼자 모드(NPC만 있는 교실)로 동작합니다.

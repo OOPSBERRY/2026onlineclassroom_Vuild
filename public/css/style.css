@@ -89,6 +89,15 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .kind-dot[data-kind="rest"] { background: #f2994a; }
 .chev { width: 16px; height: 16px; opacity: 0.75; }
 .count { font-size: 15px; opacity: 0.86; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.site-stats {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  font-size: 14px;
+  opacity: 0.86;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .hud-period {
   top: max(27px, env(safe-area-inset-top));
@@ -547,20 +556,27 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   #confetti { display: none; }
 }
 
+/* 태블릿 폭: 왼쪽 위 칸이 길어져 시간 표시를 아래 줄로 내린다. */
+@media (max-width: 1100px) {
+  .hud-period { top: 84px; }
+  .room-dialog { top: 132px; max-height: calc(100vh - 152px); }
+}
+
 @media (max-width: 720px) {
   .qr-open { top: 10px; right: 10px; width: 42px; padding: 0; justify-content: center; }
   .qr-open span { display: none; }
-  .hud-left { top: 10px; left: 10px; height: 46px; padding-right: 13px; }
-  .room-dialog { top: 64px; left: 10px; max-height: calc(100vh - 74px); padding: 16px; }
+  .hud-left { top: 10px; left: 10px; height: auto; min-height: 46px; max-width: 214px; padding: 2px 13px 2px 5px; flex-wrap: wrap; column-gap: 4px; row-gap: 0; border-radius: 23px; }
+  .site-stats { width: 100%; margin: 0; padding: 0 0 5px 42px; border: 0; font-size: 12px; }
+  .room-dialog { top: 108px; left: 10px; max-height: calc(100vh - 118px); padding: 16px; }
   .hud-right { top: 10px; right: 10px; gap: 6px; }
   .tools { height: 46px; padding: 3px; }
   .icon-btn { width: 36px; height: 36px; }
   #room-name { font-size: 17px; }
   .count { font-size: 13px; }
-  .hud-period { top: 64px; left: 10px; transform: none; padding: 5px 12px; font-size: 13px; }
+  .hud-period { top: 76px; left: 10px; transform: none; padding: 5px 12px; font-size: 13px; }
   .pill-btn { padding: 8px 12px; font-size: 13px; }
   .hint { bottom: 84px; font-size: 13px; padding: 0 16px; }
-  .toast { bottom: 112px; max-width: calc(100vw - 24px); white-space: normal; text-align: center; border-radius: 18px; }
+  .toast { bottom: 112px; width: max-content; max-width: calc(100vw - 24px); white-space: normal; word-break: keep-all; text-align: center; border-radius: 18px; }
   .hud-dock { bottom: 10px; width: calc(100vw - 16px); max-width: 560px; padding: 4px; justify-content: space-between; }
   .hud-dock button { min-width: 0; flex: 1 1 auto; height: 58px; padding: 5px 3px; font-size: 11.5px; }
   .hud-dock button svg { width: 22px; height: 22px; }

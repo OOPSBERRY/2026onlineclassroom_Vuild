@@ -871,6 +871,24 @@ function renderSayMenu() {
   $('say-menu').replaceChildren(title, ...buttons);
 }
 
+// 오늘과 전체 이용자 수. 못 가져오면 표시만 숨기고 교실은 그대로 쓴다.
+async function loadSiteStats() {
+  const base = 'https://minfp-online-classroom.goatcounter.com/counter/TOTAL.json';
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const read = async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(String(response.status));
+    return (await response.json()).count;
+  };
+  try {
+    const [daily, total] = await Promise.all([read(`${base}?start=${today}`), read(base)]);
+    $('site-stats').textContent = `오늘 ${daily} · 전체 ${total}`;
+    $('site-stats').hidden = false;
+  } catch {
+    $('site-stats').hidden = true;
+  }
+}
+
 function setPeriodLabel() {
   $('period').textContent = period.label;
 }
@@ -912,6 +930,8 @@ async function loadRoomList() {
 function setupUi() {
   $('room-name').textContent = room.name;
   $('room-dot').dataset.kind = room.kind;
+  loadSiteStats();
+  setInterval(loadSiteStats, 10 * 60 * 1000);
   document.title = `${room.name} · 우리 교실`;
   setPeriodLabel();
   saveLookChip();

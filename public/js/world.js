@@ -8,7 +8,7 @@ import { kstNow } from './schedule.js';
 export const ROOM = { halfX: 8, halfZ: 9, height: 4.8 };
 export const BOARD = { width: 9.6, height: 2.2, y: 2.25, z: -8.84 };
 
-// 자습 교실은 밝은 낮, 추억 교실은 노을 지는 저녁이다.
+// 교실은 밝은 낮을 쓴다. 노을(sunset) 분위기는 지금 쓰지 않는다.
 const MOODS = {
   day: {
     sunDir: new THREE.Vector3(-22, 14, 7).normalize(),

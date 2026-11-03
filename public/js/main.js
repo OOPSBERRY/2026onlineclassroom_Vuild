@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Avatar } from './avatar.js';
 import { Board } from './board.js';
-import { HAIR_BY_GENDER, LOOKS, PHRASES, REGIONS, ROOM_CAPACITY, ROOM_KINDS, nickName, parseRoomId, phrasesFor, plateName, randomHair, randomLook, randomNick } from './data.js';
+import { setupClassQuiz } from './classquiz.js';
+import { HAIR_BY_GENDER, LANGS, LOOKS, MENU_TITLES, PHRASES, SIT_ALERT, cleanLang, phraseText, quizText, ROOM_CAPACITY, ROOM_CODE_LENGTH, nickName, parseRoomCode, phrasesFor, randomHair, randomLook, randomNick } from './data.js';
 import { Nav } from './nav.js';
 import { Net } from './net.js';
 import { currentPeriod } from './schedule.js';
@@ -15,7 +16,6 @@ const clamp = THREE.MathUtils.clamp;
 const damp = (current, target, rate, dt) => current + (target - current) * (1 - Math.exp(-rate * dt));
 const hex = (value) => `#${value.toString(16).padStart(6, '0')}`;
 
-const NPC_TARGET = 8;
 const WALK_SPEED = 2.5;
 const BOUNDS = { minX: -7.6, maxX: 7.6, minZ: -8.5, maxZ: 8.1 };
 
@@ -32,13 +32,20 @@ const store = {
 };
 
 const params = new URLSearchParams(location.search);
-let room = parseRoomId(params.get('room'));
+let roomCode = parseRoomCode(params.get('room'));
 
 const look = store.get('look', null) || randomLook();
 const nick = store.get('nick', null) || randomNick();
 store.set('look', look);
 store.set('nick', nick);
-const settings = { volume: 0.7, shadows: true, npc: true, ...store.get('settings', {}) };
+let lang = cleanLang(store.get('lang', 'ko'));
+// 진짜 이름은 이 탭에서만 기억한다. 학교 공용 기기에서 다음 학생에게 남지 않게 한다.
+const nameStore = {
+  get() { try { return sessionStorage.getItem('classroom.name') ?? ''; } catch { return ''; } },
+  set(value) { try { sessionStorage.setItem('classroom.name', value); } catch { /* 저장 못 해도 된다 */ } },
+};
+let realName = nameStore.get();
+const settings = { volume: 0.7, shadows: true, ...store.get('settings', {}) };
 
 const sound = new Sound();
 sound.volume = settings.volume;
@@ -46,7 +53,6 @@ sound.volume = settings.volume;
 let renderer, scene, camera, world, nav, board;
 let player;
 const actors = new Map();
-const npcs = [];
 const planes = [];
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
@@ -59,9 +65,12 @@ let sendClock = 0;
 const periodSpeed = params.get('demo') === '1' ? 60 : 1;
 let period = currentPeriod(Date.now(), periodSpeed);
 let net;
+let isTeacher = false;
+let focus = false;
+let classQuiz;
 
 class Actor {
-  constructor({ id, lookValue, nickValue, regionValue, kind }) {
+  constructor({ id, lookValue, nickValue, kind, teacher = false, realName = '' }) {
     this.id = id;
     this.kind = kind;
     this.avatar = new Avatar(lookValue);
@@ -75,7 +84,8 @@ class Actor {
     this.onArrive = null;
     this.net = null;
     this.nick = nickValue;
-    this.region = regionValue;
+    this.teacher = teacher;
+    this.realName = realName;
     scene.add(this.avatar.root);
     this.buildLabel();
   }
@@ -93,8 +103,8 @@ class Actor {
   }
 
   renderPlate() {
-    const badge = { me: '나', npc: 'NPC' }[this.kind];
-    this.plate.className = `nameplate ${badge ? '' : 'plain'} ${this.kind === 'npc' ? 'npc' : ''}`;
+    const badge = { me: '나' }[this.kind];
+    this.plate.className = `nameplate ${badge ? '' : 'plain'} ${this.teacher ? 'teacher' : ''}`;
     this.plate.textContent = '';
     if (badge) {
       const mark = document.createElement('span');
@@ -102,7 +112,8 @@ class Actor {
       mark.textContent = badge;
       this.plate.append(mark);
     }
-    this.plate.append(plateName(this.region, this.nick));
+    // 진짜 이름은 선생님 화면에만 온다. 친구들 화면에는 동물 이름만 보인다.
+    this.plate.append(this.teacher ? '선생님' : this.realName ? `${this.realName} (${nickName(this.nick)})` : nickName(this.nick));
   }
 
   say(text) {
@@ -159,7 +170,7 @@ class Actor {
       this.z = damp(this.z, this.net.z, 8, dt);
       this.tr = this.net.r;
     } else if (this.path.length) {
-      let budget = WALK_SPEED * dt * (this.kind === 'npc' ? 0.72 : 1);
+      let budget = WALK_SPEED * dt;
       moving = true;
       while (budget > 0 && this.path.length) {
         const next = this.path[0];
@@ -210,91 +221,156 @@ class Actor {
 
 // ---------- 시작 ----------
 
-// 주소의 다른 값(demo 등)은 그대로 두고 반 번호만 바꾼 주소를 만든다.
-function searchWithRoom(id) {
+// 주소의 다른 값(demo 등)은 그대로 두고 방 코드만 바꾼 주소를 만든다.
+function searchWithRoom(code) {
   const next = new URLSearchParams(location.search);
-  if (id) next.set('room', id);
+  if (code) next.set('room', code);
   else next.delete('room');
-  return `?${next}`;
+  return '?' + next;
 }
 
-async function fetchRooms() {
+// 방 코드가 열려 있는 교실인지 서버에 묻는다. 서버에 닿지 않으면(정적 호스팅 등) 혼자 모드로 들어간다.
+async function lookupRoom(code) {
   try {
-    const response = await fetch('/api/rooms');
+    const response = await fetch('/api/room?code=' + code);
+    if (response.status === 404) return 'none';
+    if (response.status === 429) return 'busy';
+    if (!response.ok) return 'offline';
+    return (await response.json()).full ? 'full' : 'ok';
+  } catch { return 'offline'; }
+}
+
+// 말풍선 언어를 고른다. 내가 보는 말풍선만 바뀌고, 다른 친구에게는 영향이 없다.
+function fillLangSelect(select, onChange) {
+  select.replaceChildren(...LANGS.map((l) => new Option(l.label, l.code)));
+  select.value = lang;
+  select.onchange = () => {
+    lang = cleanLang(select.value);
+    store.set('lang', lang);
+    for (const id of ['entry-lang', 'set-lang']) $(id).value = lang;
+    onChange?.();
+  };
+}
+
+// 선생님이 새 교실을 연다. 코드는 서버가 정해 준다.
+async function createRoom() {
+  try {
+    const response = await fetch('/api/create', { method: 'POST' });
     if (response.ok) return await response.json();
-  } catch { /* 서버가 없으면 인원 없이 보여 준다 */ }
-  return Object.keys(ROOM_KINDS).map((kind) => ({ ...parseRoomId(`${kind}-1`), count: null }));
+    return { error: response.status === 429 ? '잠시 뒤에 다시 만들어 주세요.' : '지금은 교실을 만들 수 없어요.' };
+  } catch { return { error: '서버에 연결할 수 없어요. 인터넷을 확인해 주세요.' }; }
 }
 
-// 어느 반으로 갈지는 서버가 정한다. 서버가 없으면 1반으로 들어간다.
-async function chooseRoom(kind) {
-  try {
-    const response = await fetch(`/api/assign?kind=${kind}`);
-    if (response.ok) return parseRoomId((await response.json()).id);
-  } catch { /* 아래의 1반으로 */ }
-  return parseRoomId(`${kind}-1`);
-}
+const ENTRY_MESSAGES = {
+  none: '없는 방 코드예요. 선생님이 알려 준 숫자를 다시 확인해 주세요.',
+  full: '이 교실은 자리가 다 찼어요.',
+  busy: '너무 자주 눌렀어요. 잠시 뒤에 다시 해 주세요.',
+};
 
-// 사이트 첫 화면 주소를 QR 코드로 보여 준다. 교실 TV에 띄워 두면 태블릿으로 바로 찍어 들어올 수 있다.
+// 방 코드와 QR 코드를 보여 준다. 칠판 앞 TV에 띄워 두면 학생들이 코드를 입력하거나 태블릿으로 찍어 들어온다.
 function setupQr() {
-  const url = `${location.origin}/`;
-  $('btn-qr').onclick = () => {
+  const url = location.origin + '/?room=' + roomCode;
+  $('btn-room').onclick = () => {
     const qr = window.qrcode(0, 'M');
     qr.addData(url);
     qr.make();
     $('qr-code').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    $('qr-code-text').textContent = roomCode;
     $('qr-url').textContent = url;
+    closePanels();
     $('qr-dialog').hidden = false;
   };
   $('btn-qr-close').onclick = () => { $('qr-dialog').hidden = true; };
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') $('qr-dialog').hidden = true;
-  });
+  $('qr-dialog').onclick = (e) => { if (e.target === $('qr-dialog')) $('qr-dialog').hidden = true; };
 }
 
-function showEntry() {
-  setupQr();
+function showEntry(notice = '') {
   return new Promise((resolve) => {
-    const picks = { kind: room?.kind ?? store.get('kind', null), region: store.get('region', null), gender: store.get('gender', null) };
-    const select = $('entry-region');
-    select.append(...REGIONS.map((name, i) => new Option(name, i)));
-    if (picks.region !== null) select.value = picks.region;
-
-    const kindCards = [...document.querySelectorAll('[data-kind]')];
+    let gender = store.get('gender', null);
+    const input = $('entry-code');
+    const error = $('entry-error');
     const genderCards = [...document.querySelectorAll('[data-gender]')];
-    const refresh = () => {
-      kindCards.forEach((c) => c.setAttribute('aria-pressed', c.dataset.kind === picks.kind));
-      genderCards.forEach((c) => c.setAttribute('aria-pressed', Number(c.dataset.gender) === picks.gender));
-      $('btn-enter').disabled = picks.kind === null || picks.region === null || picks.gender === null;
-    };
-    kindCards.forEach((c) => { c.onclick = () => { picks.kind = c.dataset.kind; refresh(); }; });
-    genderCards.forEach((c) => { c.onclick = () => { picks.gender = Number(c.dataset.gender); refresh(); }; });
-    select.onchange = () => {
-      picks.region = select.value === '' ? null : Number(select.value);
-      refresh();
-    };
+    input.value = roomCode ?? '';
+    const nameInput = $('entry-name');
+    nameInput.value = realName;
+    fillLangSelect($('entry-lang'));
 
-    $('btn-enter').onclick = async () => {
-      $('btn-enter').disabled = true;
-      for (const key of Object.keys(picks)) store.set(key, picks[key]);
-      if (!HAIR_BY_GENDER[picks.gender].includes(look.hair)) {
-        look.hair = randomHair(picks.gender);
+    const showError = (text) => {
+      error.textContent = text;
+      error.hidden = !text;
+    };
+    const refresh = () => {
+      genderCards.forEach((c) => c.setAttribute('aria-pressed', Number(c.dataset.gender) === gender));
+      $('btn-enter').disabled = gender === null || !nameInput.value.trim() || input.value.length !== ROOM_CODE_LENGTH;
+      $('btn-create').disabled = gender === null;
+    };
+    const finish = (code, token) => {
+      realName = nameInput.value.trim().slice(0, 10);
+      nameStore.set(realName);
+      if (token) store.set(`host.${code}`, token);
+      store.set('gender', gender);
+      if (!HAIR_BY_GENDER[gender].includes(look.hair)) {
+        look.hair = randomHair(gender);
         store.set('look', look);
       }
-      room = await chooseRoom(picks.kind);
-      history.replaceState(null, '', searchWithRoom(room.id));
+      roomCode = code;
+      history.replaceState(null, '', searchWithRoom(code));
       $('entry').hidden = true;
       resolve();
     };
 
+    genderCards.forEach((c) => { c.onclick = () => { gender = Number(c.dataset.gender); refresh(); }; });
+    nameInput.oninput = () => { showError(''); refresh(); };
+    input.oninput = () => {
+      input.value = input.value.replace(/\D/g, '').slice(0, ROOM_CODE_LENGTH);
+      showError('');
+      refresh();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' && !$('btn-enter').disabled) $('btn-enter').click();
+    };
+
+    $('btn-enter').onclick = async () => {
+      $('btn-enter').disabled = true;
+      $('btn-create').disabled = true;
+      const code = parseRoomCode(input.value);
+      const status = await lookupRoom(code);
+      if (status === 'ok' || status === 'offline') {
+        finish(code);
+        return;
+      }
+      showError(ENTRY_MESSAGES[status]);
+      refresh();
+    };
+
+    $('btn-create').onclick = async () => {
+      $('btn-enter').disabled = true;
+      $('btn-create').disabled = true;
+      const result = await createRoom();
+      if (result.code) {
+        finish(result.code, result.token);
+        return;
+      }
+      showError(result.error);
+      refresh();
+    };
+
+    showError(notice);
     refresh();
     $('entry').hidden = false;
   });
 }
 
 async function boot() {
-  // 반 주소로 바로 왔어도 지역과 모습을 아직 안 골랐으면 입구부터 거친다.
-  if (!room || store.get('region', null) === null || store.get('gender', null) === null) await showEntry();
+  // QR이나 링크로 방 코드가 같이 왔고 모습도 이미 골랐다면 바로 들어간다. 아니면 입구부터 거친다.
+  let notice = '';
+  let ready = false;
+  if (roomCode && store.get('gender', null) !== null && (realName || store.get(`host.${roomCode}`, null))) {
+    const status = await lookupRoom(roomCode);
+    ready = status === 'ok' || status === 'offline';
+    if (!ready) notice = ENTRY_MESSAGES[status];
+  }
+  if (!ready) await showEntry(notice);
   try {
     renderer = new THREE.WebGLRenderer({ canvas: $('scene'), antialias: true, powerPreference: 'high-performance' });
   } catch {
@@ -314,7 +390,7 @@ async function boot() {
   camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.08, 400);
 
   board = new Board();
-  world = buildWorld(scene, board, room.name, room.kind === 'rest' ? 'sunset' : 'day');
+  world = buildWorld(scene, board, roomCode, 'day');
   renderer.toneMappingExposure = world.exposure;
   nav = new Nav(world.obstacles, BOUNDS);
 
@@ -326,7 +402,7 @@ async function boot() {
   clickRing.position.y = 0.012;
   scene.add(clickRing);
 
-  player = new Actor({ id: 'me', lookValue: look, nickValue: nick, regionValue: store.get('region', -1), kind: 'me' });
+  player = new Actor({ id: 'me', lookValue: look, nickValue: nick, kind: 'me' });
   // 함께 들어와도 겹치지 않게 책상 사이 통로 곳곳에서 시작한다.
   player.x = (Math.random() < 0.5 ? -2.3 : 2.3) + THREE.MathUtils.randFloatSpread(1);
   player.z = THREE.MathUtils.randFloat(-1.5, 3.2);
@@ -338,7 +414,6 @@ async function boot() {
 
   setupUi();
   setupInput();
-  syncNpcCount();
   connect();
   resize();
   addEventListener('resize', resize);
@@ -348,7 +423,7 @@ async function boot() {
     $('loader').classList.add('fade');
     setTimeout(() => {
       $('loader').hidden = true;
-      toast(`${room.name}에 들어왔어요. 같은 반 친구들만 보여요.`);
+      toast(`방 코드 ${roomCode} 교실에 들어왔어요. 같은 방 친구들만 보여요.`);
     }, 950);
   }, 900);
   setTimeout(() => $('hint').classList.add('gone'), 11000);
@@ -372,7 +447,7 @@ function setCount() {
 }
 
 function addRemote(info) {
-  const actor = new Actor({ id: info.id, lookValue: info.look, nickValue: info.nick, regionValue: info.region, kind: 'real' });
+  const actor = new Actor({ id: info.id, lookValue: info.look, nickValue: info.nick, kind: 'real', teacher: !!info.teacher, realName: info.name ?? '' });
   actor.x = info.x;
   actor.z = info.z;
   actor.r = info.r;
@@ -381,7 +456,6 @@ function addRemote(info) {
   actors.set(info.id, actor);
   realOthers = actors.size;
   setCount();
-  syncNpcCount();
 }
 
 function applySeat(actor, seat) {
@@ -396,8 +470,15 @@ function clearRemotes() {
 }
 
 function connect() {
-  net = new Net(room.id, {
+  net = new Net(roomCode, {
     welcome(msg) {
+      isTeacher = !!msg.teacher;
+      setFocus(!!msg.focus);
+      player.teacher = isTeacher;
+      player.renderPlate();
+      $('teacher-bar').hidden = !isTeacher;
+      $('btn-study').hidden = isTeacher;
+      if (msg.quiz) classQuiz.start(msg.quiz);
       clearRemotes();
       msg.players.forEach(addRemote);
       lastSent = '';
@@ -409,7 +490,6 @@ function connect() {
       actors.delete(msg.id);
       realOthers = actors.size;
       setCount();
-      syncNpcCount();
     },
     pos(msg) {
       const actor = actors.get(msg.id);
@@ -419,7 +499,7 @@ function connect() {
     },
     act: (msg) => actors.get(msg.id)?.act(msg.a),
     say(msg) {
-      actors.get(msg.id)?.say(PHRASES[msg.i]);
+      actors.get(msg.id)?.say(phraseText(msg.i, lang));
       sound.pop();
     },
     look(msg) {
@@ -429,21 +509,46 @@ function connect() {
       actor.nick = msg.nick;
       actor.renderPlate();
     },
+    sit: (msg) => forceSit(msg.seat),
+    focus(msg) {
+      setFocus(msg.on);
+      if (!isTeacher) toast(msg.on ? '지금은 종이비행기를 날릴 수 없어요' : '다시 종이비행기를 날릴 수 있어요');
+    },
+    progress(msg) {
+      progressData = msg;
+      renderProgress();
+    },
+    noname() {
+      net.full = true;
+      toast('이름을 적고 다시 들어와 주세요.');
+      setTimeout(() => { location.search = searchWithRoom(null); }, 2000);
+    },
+    quiz(msg) {
+      classQuiz.start(msg.qs);
+      toast(quizText('title', lang));
+    },
+    quizEnd() {
+      classQuiz.end();
+      toast('선생님이 문제를 끝냈어요');
+    },
+    result: (msg) => classQuiz.result(msg),
+    quizSent: (msg) => toast(`학생 ${msg.count}명에게 문제를 보냈어요`),
     full() {
       net.full = true;
-      toast('지금은 모든 반이 다 찼어요. 잠시 뒤에 다시 들어와 주세요.');
+      toast('이 교실은 자리가 다 찼어요.');
     },
-    redirect(msg) {
+    // 오래 비어 닫혔거나 서버가 다시 시작된 경우다. 처음 화면에서 코드를 다시 입력하게 한다.
+    closed() {
       net.full = true;
-      location.search = searchWithRoom(msg.room);
+      toast('이 교실은 닫혔어요. 처음 화면으로 돌아가요.');
+      setTimeout(() => { location.search = searchWithRoom(null); }, 2500);
     },
     lost() {
       clearRemotes();
       setCount();
-      syncNpcCount();
     },
   });
-  net.connect(() => ({ look, nick, region: player.region }));
+  net.connect(() => ({ look, nick, name: realName, token: store.get(`host.${roomCode}`, undefined) }));
 }
 
 function sendPosition(dt) {
@@ -457,20 +562,165 @@ function sendPosition(dt) {
   net.send(packet);
 }
 
-// ---------- NPC 친구들 ----------
+// ---------- 선생님 기능 ----------
+
+let progressData = null;
+
+// 선생님이 앉히거나 문제를 내면 학생은 종이비행기를 날릴 수 없다. 선생님은 늘 날릴 수 있다.
+function setFocus(on) {
+  focus = on;
+  const button = document.querySelector('[data-act="throw"]');
+  button.disabled = on && !isTeacher;
+  button.title = button.disabled ? '선생님이 수업을 시작해서 날릴 수 없어요' : '';
+}
+
+// 학생별로 푼 문제 수와 맞힌 개수를 표로 보여 준다.
+function renderProgress() {
+  const box = $('result-rows');
+  if (!progressData) {
+    box.replaceChildren();
+    $('result-empty').hidden = false;
+    return;
+  }
+  $('result-empty').hidden = true;
+  $('result-total').textContent = `문제 ${progressData.total}개`;
+  box.replaceChildren(...progressData.rows.map((row) => {
+    const done = [...row.marks].filter((c) => c !== '-').length;
+    const right = [...row.marks].filter((c) => c === 'o').length;
+    const line = document.createElement('div');
+    line.className = 'result-row';
+    if (!row.here) line.classList.add('away');
+    const name = document.createElement('strong');
+    name.textContent = row.name + (row.here ? '' : ' (나감)');
+    const marks = document.createElement('span');
+    marks.className = 'marks';
+    for (const c of row.marks) {
+      const dot = document.createElement('i');
+      dot.className = c === 'o' ? 'right' : c === 'x' ? 'wrong' : 'none';
+      dot.textContent = c === 'o' ? 'O' : c === 'x' ? 'X' : '·';
+      marks.append(dot);
+    }
+    const score = document.createElement('span');
+    score.className = 'score';
+    score.textContent = `${right}/${progressData.total}`;
+    score.title = `${done}문제 풀고 ${right}개 맞힘`;
+    line.append(name, marks, score);
+    return line;
+  }));
+}
+
+// 선생님이 모두 앉히기를 눌렀다. 서버가 정해 준 자리로 걸어가 앉는다.
+function forceSit(seat) {
+  $('sit-alert-ko').textContent = SIT_ALERT.ko;
+  $('sit-alert-tr').textContent = lang === 'ko' ? '' : SIT_ALERT[lang];
+  $('sit-alert').hidden = false;
+  clearTimeout(forceSit.timer);
+  forceSit.timer = setTimeout(() => { $('sit-alert').hidden = true; }, 3200);
+  sound.chime();
+  if (player.seat >= 0) return;
+  if (seat < 0) {
+    toast('지금은 빈자리가 없어요');
+    return;
+  }
+  player.goToSeat(seat);
+  showRing(world.seats[seat].standX, world.seats[seat].standZ);
+}
+
+const QUIZ_LIMIT = 15;
+
+function setupTeacher() {
+  let rows = store.get('quizDraft', null);
+  if (!Array.isArray(rows) || !rows.length) rows = [{ q: '', a: '' }];
+  const save = () => store.set('quizDraft', rows);
+
+  const renderRows = () => {
+    $('teacher-rows').replaceChildren(...rows.map((row, i) => {
+      const box = document.createElement('div');
+      box.className = 'teacher-row';
+      const q = document.createElement('input');
+      q.placeholder = `${i + 1}번 문제`;
+      q.maxLength = 80;
+      q.value = row.q;
+      q.oninput = () => { row.q = q.value; save(); };
+      const a = document.createElement('input');
+      a.placeholder = '정답';
+      a.maxLength = 20;
+      a.value = row.a;
+      a.oninput = () => { row.a = a.value; save(); };
+      const del = document.createElement('button');
+      del.className = 'row-del';
+      del.textContent = '×';
+      del.setAttribute('aria-label', `${i + 1}번 문제 지우기`);
+      del.onclick = () => {
+        rows.splice(i, 1);
+        if (!rows.length) rows.push({ q: '', a: '' });
+        save();
+        renderRows();
+      };
+      box.append(q, a, del);
+      return box;
+    }));
+    $('btn-row-add').hidden = rows.length >= QUIZ_LIMIT;
+  };
+
+  $('btn-sit-all').onclick = () => {
+    net.send({ t: 'sitAll' });
+    toast('학생들을 자리에 앉혔어요');
+  };
+  $('btn-teach').onclick = () => {
+    closePopovers();
+    closePanels();
+    renderRows();
+    $('teacher-dialog').hidden = false;
+  };
+  $('teacher-close').onclick = () => { $('teacher-dialog').hidden = true; };
+  $('btn-row-add').onclick = () => {
+    rows.push({ q: '', a: '' });
+    save();
+    renderRows();
+    $('teacher-rows').lastElementChild.querySelector('input').focus();
+  };
+  $('btn-quiz-send').onclick = () => {
+    const items = rows.map((r) => ({ q: r.q.trim(), a: r.a.trim() })).filter((r) => r.q || r.a);
+    if (!items.length || items.some((r) => !r.q || !r.a)) {
+      toast('문제와 정답을 모두 적어 주세요');
+      return;
+    }
+    net.send({ t: 'quiz', items });
+    $('teacher-dialog').hidden = true;
+    progressData = null;
+    renderProgress();
+    $('result-dialog').hidden = false;
+  };
+  const endQuiz = () => {
+    net.send({ t: 'quizEnd' });
+    progressData = null;
+    renderProgress();
+    $('result-dialog').hidden = true;
+    toast('문제를 끝냈어요');
+  };
+  $('btn-quiz-end').onclick = endQuiz;
+  $('btn-result-end').onclick = endQuiz;
+  $('btn-results').onclick = () => {
+    renderProgress();
+    $('result-dialog').hidden = !$('result-dialog').hidden;
+  };
+  $('result-close').onclick = () => { $('result-dialog').hidden = true; };
+  $('btn-free').onclick = () => {
+    net.send({ t: 'free' });
+    toast('학생들이 다시 자유롭게 움직일 수 있어요');
+  };
+}
+
+// ---------- 자리 ----------
 
 function freeSeats() {
   const taken = new Set();
-  for (const actor of [player, ...actors.values(), ...npcs]) {
+  for (const actor of [player, ...actors.values()]) {
     if (actor.seat >= 0) taken.add(actor.seat);
     if (actor.pendingSeat >= 0) taken.add(actor.pendingSeat);
   }
   return world.seats.filter((seat) => !taken.has(seat.index));
-}
-
-function freeSeat() {
-  const free = freeSeats();
-  return free.length ? free[Math.floor(Math.random() * free.length)].index : -1;
 }
 
 function toggleSit() {
@@ -514,84 +764,6 @@ function updateSitButton() {
   const text = player.seat >= 0 || player.pendingSeat >= 0 ? '일어서기' : '앉기';
   const label = $('sit-text');
   if (label.textContent !== text) label.textContent = text;
-}
-
-function syncNpcCount() {
-  const want = settings.npc ? Math.max(0, NPC_TARGET - realOthers) : 0;
-  while (npcs.length > want) npcs.pop().dispose();
-  while (npcs.length < want) {
-    const npc = new Actor({ id: `npc-${npcs.length}`, lookValue: randomLook(), nickValue: randomNick(), regionValue: Math.floor(Math.random() * REGIONS.length), kind: 'npc' });
-    const spot = randomSpot();
-    npc.x = spot.x;
-    npc.z = spot.z;
-    npc.tr = npc.r = Math.random() * 6;
-    npc.timer = Math.random() * 2;
-    npcs.push(npc);
-    const seat = freeSeat();
-    if (period.kind === 'class' && seat >= 0) seatInstantly(npc, seat);
-  }
-}
-
-function seatInstantly(actor, index) {
-  const seat = world.seats[index];
-  actor.x = seat.x;
-  actor.z = seat.z;
-  actor.r = actor.tr = Math.PI;
-  actor.seat = index;
-  actor.avatar.seated = true;
-}
-
-function randomSpot() {
-  for (let i = 0; i < 40; i++) {
-    const x = THREE.MathUtils.randFloat(BOUNDS.minX, BOUNDS.maxX);
-    const z = THREE.MathUtils.randFloat(BOUNDS.minZ, BOUNDS.maxZ);
-    if (nav.isFree(x, z)) return { x, z };
-  }
-  return { x: 2.3, z: 6 };
-}
-
-function updateNpcs(dt) {
-  for (const npc of npcs) {
-    npc.timer -= dt;
-    if (npc.timer > 0 || npc.path.length) continue;
-    npc.timer = 3 + Math.random() * 7;
-
-    if (period.kind === 'class') {
-      if (npc.seat < 0 && npc.pendingSeat < 0) {
-        const seat = freeSeat();
-        if (seat >= 0) npc.goToSeat(seat);
-      } else if (Math.random() < 0.12) {
-        npc.act('raise');
-      } else if (Math.random() < 0.1) {
-        npcSay(npc);
-      }
-      continue;
-    }
-
-    const roll = Math.random();
-    if (roll < 0.34) {
-      const spot = randomSpot();
-      npc.walkTo(spot.x, spot.z);
-    } else if (roll < 0.46) {
-      const seat = freeSeat();
-      if (seat >= 0) npc.goToSeat(seat);
-    } else if (roll < 0.56) {
-      npc.act('clap');
-    } else if (roll < 0.66) {
-      npc.act('bow');
-    } else if (roll < 0.74) {
-      npc.act('throw');
-    } else if (roll < 0.86) {
-      npcSay(npc);
-    } else if (roll < 0.94 && npc.seat < 0) {
-      npc.act('jump');
-    }
-  }
-}
-
-function npcSay(npc) {
-  const list = phrasesFor(period.kind);
-  npc.say(list[Math.floor(Math.random() * list.length)].text);
 }
 
 // ---------- 종이비행기 ----------
@@ -734,6 +906,7 @@ function setupInput() {
       if (!e.repeat) jump();
       return;
     }
+    if (e.target.matches?.('input, textarea, select')) return;
     keys.add(e.code);
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
@@ -764,7 +937,7 @@ function handleClick(hit) {
   $('hint').classList.add('gone');
   const seat = hit.object.userData.seat;
   if (seat !== undefined) {
-    const occupied = [...actors.values(), ...npcs].some((a) => a.seat === seat || a.pendingSeat === seat);
+    const occupied = [...actors.values()].some((a) => a.seat === seat || a.pendingSeat === seat);
     if (occupied) {
       toast('다른 친구가 앉은 자리예요');
       return;
@@ -825,8 +998,7 @@ function toast(text) {
 }
 
 function closePopovers() {
-  for (const id of ['room-dialog', 'say-menu']) $(id).hidden = true;
-  $('btn-room').setAttribute('aria-expanded', false);
+  for (const id of ['qr-dialog', 'say-menu']) $(id).hidden = true;
 }
 
 function closePanels() {
@@ -882,12 +1054,18 @@ function togglePanel(id) {
 function renderSayMenu() {
   const title = document.createElement('p');
   title.className = 'say-title';
-  title.textContent = period.kind === 'class' ? '수업 시간에 할 말' : '쉬는 시간에 할 말';
+  title.textContent = MENU_TITLES[period.kind === 'class' ? 'class' : 'break'][lang];
   const buttons = phrasesFor(period.kind).map(({ text, index }) => {
     const button = document.createElement('button');
-    button.textContent = text;
+    button.append(phraseText(index, lang));
+    if (lang !== 'ko') {
+      const ko = document.createElement('span');
+      ko.className = 'ko';
+      ko.textContent = text;
+      button.append(ko);
+    }
     button.onclick = () => {
-      player.say(text);
+      player.say(phraseText(index, lang));
       sound.pop();
       net.send({ t: 'say', i: index });
       closePopovers();
@@ -928,37 +1106,13 @@ function checkPeriod() {
   renderSayMenu();
   sound.chime();
   toast(period.kind === 'class' ? '수업 시작이에요' : '쉬는 시간이에요');
-  for (const npc of npcs) npc.timer = Math.random() * 3;
-}
-
-async function loadRoomList() {
-  const list = (await fetchRooms()).filter((r) => r.kind === room.kind);
-  $('room-list').replaceChildren(...list.map((r) => {
-    const current = r.id === room.id;
-    const full = r.count !== null && r.count >= ROOM_CAPACITY;
-    const card = document.createElement('button');
-    card.className = 'room-card';
-    card.setAttribute('aria-current', current);
-    card.disabled = full && !current;
-    const name = document.createElement('strong');
-    name.textContent = r.name;
-    const count = document.createElement('span');
-    count.textContent = r.count === null ? '인원 확인 불가' : `${r.count} / ${ROOM_CAPACITY}명${full ? ' · 가득 참' : ''}`;
-    card.append(name, count);
-    card.onclick = () => {
-      if (current) closePopovers();
-      else location.search = searchWithRoom(r.id);
-    };
-    return card;
-  }));
 }
 
 function setupUi() {
-  $('room-name').textContent = room.name;
-  $('room-dot').dataset.kind = room.kind;
+  $('room-name').textContent = roomCode;
   loadSiteStats();
   setInterval(loadSiteStats, 10 * 60 * 1000);
-  document.title = `${room.name} · 우리 교실`;
+  document.title = `${roomCode} · 우리 교실`;
   setPeriodLabel();
   saveLookChip();
   renderLookOptions();
@@ -972,25 +1126,7 @@ function setupUi() {
   $('btn-reenter').onclick = () => location.reload();
   $('btn-to-entry').onclick = () => { location.search = searchWithRoom(null); };
 
-  $('room-dialog-title').textContent = `${ROOM_KINDS[room.kind]} 교실 반 목록`;
-  $('room-current').textContent = `현재 · ${room.name}`;
-  $('btn-room').onclick = async () => {
-    const open = $('room-dialog').hidden;
-    closePopovers();
-    if (open) {
-      closePanels();
-      await loadRoomList();
-      $('room-dialog').hidden = false;
-      $('btn-room').setAttribute('aria-expanded', true);
-    }
-  };
-  $('btn-room-close').onclick = closePopovers;
-  $('btn-room-refresh').onclick = async () => {
-    const button = $('btn-room-refresh');
-    button.disabled = true;
-    await loadRoomList();
-    button.disabled = false;
-  };
+  setupQr();
 
   $('btn-look').onclick = () => togglePanel('panel-look');
   $('btn-settings').onclick = () => togglePanel('panel-settings');
@@ -1014,6 +1150,7 @@ function setupUi() {
     toast('딩동댕동 — 수업 종이 울려요');
   };
 
+  fillLangSelect($('set-lang'), () => { renderSayMenu(); classQuiz.render(); });
   $('set-volume').value = settings.volume;
   $('set-volume').oninput = (e) => {
     settings.volume = Number(e.target.value);
@@ -1028,12 +1165,13 @@ function setupUi() {
     scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
     applyQuality();
   };
-  $('set-npc').checked = settings.npc;
-  $('set-npc').onchange = (e) => {
-    settings.npc = e.target.checked;
-    store.set('settings', settings);
-    syncNpcCount();
-  };
+  classQuiz = setupClassQuiz({
+    sound,
+    getLang: () => lang,
+    send: (message) => net.send(message),
+    onFinish: () => player.avatar.play('clap'),
+  });
+  setupTeacher();
 
   $('btn-sit').onclick = toggleSit;
   $('btn-jump').onclick = jump;
@@ -1050,6 +1188,10 @@ function setupUi() {
   for (const button of document.querySelectorAll('[data-act]')) {
     button.onclick = () => {
       const action = button.dataset.act;
+      if (action === 'throw' && focus && !isTeacher) {
+        toast('지금은 종이비행기를 날릴 수 없어요');
+        return;
+      }
       player.act(action);
       net.send({ t: 'act', a: action });
     };
@@ -1123,8 +1265,6 @@ function frame() {
   player.update(dt);
   updateSitButton();
   for (const actor of actors.values()) actor.update(dt);
-  updateNpcs(dt);
-  for (const npc of npcs) npc.update(dt);
   updatePlanes(dt);
   world.update(dt, time);
 
@@ -1138,7 +1278,6 @@ function frame() {
 
   updateLabel(player);
   for (const actor of actors.values()) updateLabel(actor);
-  for (const npc of npcs) updateLabel(npc);
   sendPosition(dt);
 
   periodClock += dt;
@@ -1155,7 +1294,6 @@ window.__classroom = {
   get player() { return player; },
   get camera() { return camera; },
   get view() { return view; },
-  get npcs() { return npcs; },
   get actors() { return actors; },
   get board() { return board; },
   get world() { return world; },

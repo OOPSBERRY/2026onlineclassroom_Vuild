@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Avatar } from './avatar.js';
 import { Board } from './board.js';
 import { setupClassQuiz } from './classquiz.js';
-import { HAIR_BY_GENDER, LANGS, LOOKS, MENU_TITLES, PHRASES, SIT_ALERT, cleanLang, phraseText, quizText, ROOM_CAPACITY, ROOM_CODE_LENGTH, nickName, parseRoomCode, phrasesFor, randomHair, randomLook, randomNick } from './data.js';
+import { HAIR_BY_GENDER, LANGS, LOOKS, MENU_TITLES, PHRASES, SIT_ALERT, cleanLang, phraseText, quizText, DEFAULT_STUDENTS, ROOM_CODE_LENGTH, nickName, parseRoomCode, phrasesFor, randomHair, randomLook, randomNick, cleanStudents, seatsFor } from './data.js';
 import { applyI18n, uiText } from './i18n.js';
 import { Nav } from './nav.js';
 import { Net } from './net.js';
@@ -68,8 +68,10 @@ const periodSpeed = params.get('demo') === '1' ? 60 : 1;
 let period = currentPeriod(Date.now(), periodSpeed);
 let net;
 let isTeacher = false;
+let roomStudents = DEFAULT_STUDENTS;
 let focus = false;
 let classQuiz;
+let guideIfDue = () => {};
 let study;
 
 class Actor {
@@ -239,8 +241,28 @@ async function lookupRoom(code) {
     if (response.status === 404) return 'none';
     if (response.status === 429) return 'busy';
     if (!response.ok) return 'offline';
-    return (await response.json()).full ? 'full' : 'ok';
+    const info = await response.json();
+    roomStudents = cleanStudents(info.students);
+    return info.full ? 'full' : 'ok';
   } catch { return 'offline'; }
+}
+
+// 선생님 사용 안내. "일주일 동안 보지 않기"를 누르면 그 기기에서 7일 동안은 선생님으로 들어와도 저절로 열리지 않는다.
+const GUIDE_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function setupGuide() {
+  const close = () => { $('guide-dialog').hidden = true; };
+  const open = () => { $('guide-dialog').hidden = false; };
+  $('btn-guide-entry').onclick = open;
+  $('btn-guide').onclick = open;
+  $('guide-close').onclick = close;
+  $('guide-close-btn').onclick = close;
+  $('guide-snooze').onclick = () => {
+    store.set('guideUntil', Date.now() + GUIDE_SNOOZE_MS);
+    close();
+  };
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  return () => { if (Date.now() > store.get('guideUntil', 0)) open(); };
 }
 
 // 말풍선 언어를 고른다. 내가 보는 말풍선만 바뀌고, 다른 친구에게는 영향이 없다.
@@ -256,10 +278,14 @@ function fillLangSelect(select, onChange) {
 }
 
 // 선생님이 새 교실을 연다. 코드는 서버가 정해 준다.
-async function createRoom() {
+async function createRoom(students) {
   try {
-    const response = await fetch('/api/create', { method: 'POST' });
-    if (response.ok) return await response.json();
+    const response = await fetch('/api/create?students=' + students, { method: 'POST' });
+    if (response.ok) {
+      const info = await response.json();
+      roomStudents = cleanStudents(info.students);
+      return info;
+    }
     return { errorKey: 'err_create' };
   } catch { return { errorKey: 'err_offline' }; }
 }
@@ -311,6 +337,8 @@ function showEntry(noticeKey = '') {
     const error = $('entry-error');
     const genderCards = [...document.querySelectorAll('[data-gender]')];
     input.value = roomCode ?? '';
+    $('entry-students').value = store.get('students', DEFAULT_STUDENTS);
+    $('entry-students').oninput = () => showError('');
     const nameInput = $('entry-name');
     nameInput.value = realName;
     fillLangSelect($('entry-lang'), () => { applyLang(); showError(errorKey); });
@@ -368,9 +396,15 @@ function showEntry(noticeKey = '') {
     };
 
     $('btn-create').onclick = async () => {
+      const students = Number($('entry-students').value);
+      if (!Number.isInteger(students) || students < 1 || students > 40) {
+        showError('err_students');
+        return;
+      }
+      store.set('students', students);
       $('btn-enter').disabled = true;
       $('btn-create').disabled = true;
-      const result = await createRoom();
+      const result = await createRoom(students);
       if (result.code) {
         finish(result.code, result.token);
         return;
@@ -387,6 +421,7 @@ function showEntry(noticeKey = '') {
 
 async function boot() {
   applyLang();
+  guideIfDue = setupGuide();
   // QR이나 링크로 방 코드가 같이 왔고 모습도 이미 골랐다면 바로 들어간다. 아니면 입구부터 거친다.
   let notice = '';
   let ready = false;
@@ -416,7 +451,7 @@ async function boot() {
   camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.08, 400);
 
   board = new Board();
-  world = buildWorld(scene, board, roomCode, 'day');
+  world = buildWorld(scene, board, roomCode, 'day', seatsFor(roomStudents));
   renderer.toneMappingExposure = world.exposure;
   nav = new Nav(world.obstacles, BOUNDS);
 
@@ -430,7 +465,7 @@ async function boot() {
 
   player = new Actor({ id: 'me', lookValue: look, nickValue: nick, kind: 'me' });
   // 함께 들어와도 겹치지 않게 책상 사이 통로 곳곳에서 시작한다.
-  player.x = (Math.random() < 0.5 ? -2.3 : 2.3) + THREE.MathUtils.randFloatSpread(1);
+  player.x = world.aisles[Math.floor(Math.random() * world.aisles.length)] + THREE.MathUtils.randFloatSpread(0.4);
   player.z = THREE.MathUtils.randFloat(-1.5, 3.2);
   view.look.x = player.x;
   view.look.z = player.z;
@@ -469,7 +504,7 @@ function resize() {
 // ---------- 네트워크 ----------
 
 function setCount() {
-  $('room-count').textContent = `${net?.connected ? realOthers + 1 : 1}/${ROOM_CAPACITY}`;
+  $('room-count').textContent = `${net?.connected ? realOthers + 1 : 1}/${roomStudents + 1}`;
 }
 
 function addRemote(info) {
@@ -504,6 +539,7 @@ function connect() {
       player.teacher = isTeacher;
       player.renderPlate();
       $('teacher-bar').hidden = !isTeacher;
+      if (isTeacher) guideIfDue();
       $('btn-study').hidden = isTeacher;
       if (msg.quiz) classQuiz.start(msg.quiz);
       clearRemotes();

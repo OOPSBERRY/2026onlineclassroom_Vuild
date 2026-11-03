@@ -76,7 +76,7 @@ function plane(scene, w, h, material, x, y, z, ry = 0) {
   return mesh;
 }
 
-export function buildWorld(scene, board, roomName, moodName) {
+export function buildWorld(scene, board, roomName, moodName, seatTarget = 25) {
   const mood = MOODS[moodName];
   const batch = new BoxBatch();
   const mats = {
@@ -106,7 +106,7 @@ export function buildWorld(scene, board, roomName, moodName) {
   buildFrontWall(scene, batch, mats, board);
   buildBackWall(scene, batch, mats, block);
   buildDoorWall(scene, batch, mats);
-  const seats = buildDesks(batch, mats, block);
+  const { seats, aisles } = buildDesks(batch, mats, block, seatTarget);
   const pickSeats = seatHitBoxes(scene, seats);
   buildTeacherCorner(batch, mats, block);
   const sign = plane(scene, 1.1, 0.42, new THREE.MeshStandardMaterial({ map: classSignTexture(roomName), roughness: 0.8 }), -5.9, 3.86, -8.84);
@@ -150,7 +150,7 @@ export function buildWorld(scene, board, roomName, moodName) {
     position.needsUpdate = true;
   }
 
-  return { floor, boardMesh, pickSeats, seats, obstacles, update, exposure: mood.exposure };
+  return { floor, boardMesh, pickSeats, seats, aisles, obstacles, update, exposure: mood.exposure };
 }
 
 function buildShell(scene, batch, m) {
@@ -336,9 +336,10 @@ function buildDoorWall(scene, batch, m) {
   }
 }
 
-function buildDesks(batch, m, block) {
+// 책상은 2인용 한 쌍씩 놓는다. 25자리 이하는 세 쌍(+맨 뒤 1인석), 32자리는 네 쌍, 40자리는 다섯 쌍이 한 줄에 놓인다.
+function buildDesks(batch, m, block, total = 25) {
   const seats = [];
-  const columns = [-4.6, 0, 4.6];
+  const columns = total <= 25 ? [-4.6, 0, 4.6] : total <= 32 ? [-4.8, -1.6, 1.6, 4.8] : [-6.2, -3.1, 0, 3.1, 6.2];
   const rows = [-4.5, -1.7, 1.1, 3.9];
   const jitter = (i) => ((i * 7919) % 11 - 5) * 0.008;
 
@@ -371,9 +372,13 @@ function buildDesks(batch, m, block) {
     }
   }
   // 맨 뒤 가운데의 1인 책상 (25번째 자리)
-  addDesk(0, 6.2);
-  block(-0.52, 0.52, 5.84, 7.08);
-  return seats;
+  if (columns.length === 3) {
+    addDesk(0, 6.2);
+    block(-0.52, 0.52, 5.84, 7.08);
+  }
+  // 책상 쌍 사이의 통로 가운데 x. 학생이 처음 서는 자리를 고를 때 쓴다.
+  const aisles = columns.slice(1).map((x, i) => (x + columns[i]) / 2);
+  return { seats, aisles };
 }
 
 function seatHitBoxes(scene, seats) {

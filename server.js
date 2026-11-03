@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { ROOM_CAPACITY, SEAT_COUNT, PHRASES, cleanLook, cleanNick, parseRoomCode } from './public/js/data.js';
+import { PHRASES, cleanLook, cleanNick, cleanStudents, parseRoomCode, seatsFor } from './public/js/data.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'public');
@@ -27,16 +27,18 @@ const MAX_ROOMS = 1000;
 const rooms = new Map();
 let nextId = 1;
 
-function createRoom() {
+function createRoom(students) {
   if (rooms.size >= MAX_ROOMS) return null;
   let code;
   do code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
   while (rooms.has(code));
   // hostToken은 교실을 만든 선생님만 갖는다. 이 값을 보내야 교사 기능을 쓸 수 있다.
-  const room = { code, hostToken: randomBytes(16).toString('hex'), players: new Map(), emptySince: Date.now(), quiz: null, results: new Map(), focus: false, levels: new Map(), gauge: { goal: 0, value: 0, base: 0, done: false } };
+  const room = { code, students, seatCount: seatsFor(students), hostToken: randomBytes(16).toString('hex'), players: new Map(), emptySince: Date.now(), quiz: null, results: new Map(), focus: false, levels: new Map(), gauge: { goal: 0, value: 0, base: 0, done: false } };
   rooms.set(code, room);
   return room;
 }
+
+const studentCount = (room) => [...room.players.values()].filter((p) => !p.teacher).length;
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'content-type': MIME['.json'], 'cache-control': 'no-store' });
@@ -47,13 +49,14 @@ const server = createServer(async (req, res) => {
   const { pathname, searchParams } = new URL(req.url, 'http://localhost');
   if (pathname === '/api/create') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' });
-    const room = createRoom();
-    return room ? sendJson(res, 200, { code: room.code, token: room.hostToken }) : sendJson(res, 503, { error: 'no room' });
+    const rawStudents = searchParams.get('students');
+    const room = createRoom(rawStudents === null ? cleanStudents() : cleanStudents(Number(rawStudents)));
+    return room ? sendJson(res, 200, { code: room.code, token: room.hostToken, students: room.students }) : sendJson(res, 503, { error: 'no room' });
   }
   if (pathname === '/api/room') {
     const code = parseRoomCode(searchParams.get('code'));
     const room = code && rooms.get(code);
-    return room ? sendJson(res, 200, { code, full: room.players.size >= ROOM_CAPACITY }) : sendJson(res, 404, { error: 'not found' });
+    return room ? sendJson(res, 200, { code, students: room.students, full: studentCount(room) >= room.students }) : sendJson(res, 404, { error: 'not found' });
   }
   try {
     const relative = normalize(decodeURIComponent(pathname === '/' ? '/index.html' : pathname));
@@ -179,7 +182,7 @@ function seatEveryone(room) {
     else if (p.assigned >= 0) taken.add(p.assigned);
   }
   const free = [];
-  for (let i = 0; i < SEAT_COUNT; i++) if (!taken.has(i)) free.push(i);
+  for (let i = 0; i < room.seatCount; i++) if (!taken.has(i)) free.push(i);
   for (let i = free.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [free[i], free[j]] = [free[j], free[i]];
@@ -294,7 +297,7 @@ function handle(player, room, msg) {
       const z = finite(msg.z, -9, 9);
       const r = finite(msg.r, -10, 10);
       if (x === null || z === null || r === null) return;
-      const seat = Number.isInteger(msg.s) && msg.s >= 0 && msg.s < SEAT_COUNT ? msg.s : -1;
+      const seat = Number.isInteger(msg.s) && msg.s >= 0 && msg.s < room.seatCount ? msg.s : -1;
       Object.assign(player, { x, z, r, s: seat });
       if (seat >= 0) player.assigned = -1;
       broadcast(room, { t: 'pos', id: player.id, x, z, r, s: seat }, player);
@@ -327,7 +330,7 @@ wss.on('connection', (socket, req) => {
   const code = parseRoomCode(searchParams.get('room'));
   const room = code && rooms.get(code);
   if (!room) return reject(socket, 'closed');
-  if (room.players.size >= ROOM_CAPACITY) return reject(socket, 'full');
+  if (room.players.size >= room.students + 2) return reject(socket, 'full');
 
   const player = { id: nextId++, socket, look: cleanLook(), nick: [0, 0], x: 2.3, z: 2.9, r: Math.PI, s: -1, assigned: -1, teacher: false, name: '', joined: false, alive: true, tokens: 40, refilled: Date.now() };
   socket.on('pong', () => { player.alive = true; });
@@ -347,18 +350,19 @@ wss.on('connection', (socket, req) => {
     if (!player.joined) {
       if (msg.t !== 'hello') return;
       if (rooms.get(room.code) !== room) return reject(socket, 'closed');
-      if (room.players.size >= ROOM_CAPACITY) return reject(socket, 'full');
       player.look = cleanLook(msg.look);
       player.nick = cleanNick(msg.nick);
       player.teacher = typeof msg.token === 'string' && msg.token.length === room.hostToken.length && msg.token === room.hostToken;
       player.name = cleanName(msg.name);
       // 학생은 진짜 이름이 있어야 들어올 수 있다.
       if (!player.teacher && !player.name) return reject(socket, 'noname');
+      if (!player.teacher && studentCount(room) >= room.students) return reject(socket, 'full');
       player.joined = true;
       socket.send(JSON.stringify({
         t: 'welcome',
         id: player.id,
         teacher: player.teacher,
+        students: room.students,
         quiz: !player.teacher && room.quiz ? enrollStudent(room, player.name).set.map((item) => item.q) : null,
         gauge: room.gauge.goal ? { goal: room.gauge.goal, value: Math.round(room.gauge.value * 10) / 10 } : null,
         focus: room.focus,

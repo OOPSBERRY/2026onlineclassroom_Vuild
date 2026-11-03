@@ -5,6 +5,9 @@ import { UI_TEXT } from './data.js';
 const L = (ko, en, zh, vi, ru) => ({ ko, en, zh, vi, ru });
 
 const GAME_TEXT = {
+  classSize: L('우리 반 학생 수 (선생님 제외)', 'Number of students in our class (not counting the teacher)', '我们班的学生人数（不含老师）', 'Số học sinh của lớp (không tính giáo viên)', 'Число учеников в классе (без учителя)'),
+  guideLink: L('선생님 사용 안내 보기', 'Teacher guide', '教师使用说明', 'Hướng dẫn cho giáo viên', 'Инструкция для учителя'),
+  err_students: L('학생 수는 1~40명 사이로 적어 주세요.', 'Please enter a number of students between 1 and 40.', '学生人数请填写1到40之间的数字。', 'Hãy nhập số học sinh từ 1 đến 40.', 'Введите число учеников от 1 до 40.'),
   brand: L('우리 교실', 'Our Classroom', '我们的教室', 'Lớp học của chúng ta', 'Наш класс'),
   loading: L('교실 문을 여는 중', 'Opening the classroom…', '正在打开教室…', 'Đang mở cửa lớp học…', 'Открываем класс…'),
   noWebgl: L('이 브라우저에서는 3D 교실을 열 수 없어요', "This browser can't open the 3D classroom.", '此浏览器无法打开3D教室。', 'Trình duyệt này không mở được lớp học 3D.', 'Этот браузер не может открыть 3D-класс.'),

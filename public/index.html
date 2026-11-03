@@ -161,6 +161,7 @@
     <button id="btn-teach">공부하기</button>
     <button id="btn-results">학생 현황</button>
     <button id="btn-free">자유롭게 하기</button>
+    <button id="btn-guide">사용 안내</button>
   </aside>
 
   <section id="teacher-dialog" class="glass study-dialog teacher-dialog" role="dialog" aria-labelledby="teacher-title" hidden>
@@ -204,6 +205,28 @@
     <div id="result-rows" class="result-rows"></div>
     <p class="note">수준은 선생님 화면에만 보여요. 문제를 아직 안 푼 학생은 바로 바뀌고, 푼 학생은 다음 문제 세트부터 바뀌어요. O 맞음 · X 틀림 · · 아직 안 풂. 한 문제는 처음 낸 답만 점수에 들어가요. 학생이 나가도 결과는 남아요.</p>
     <div class="study-actions"><button id="btn-result-end" class="study-dan">문제 끝내기</button></div>
+  </section>
+
+  <section id="guide-dialog" class="glass study-dialog teacher-dialog guide-dialog" role="dialog" aria-labelledby="guide-title" hidden>
+    <div class="study-head">
+      <h2 id="guide-title">선생님 사용 안내</h2>
+      <button id="guide-close" class="icon-btn" aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <ol class="guide-steps">
+      <li><strong>교실 만들기</strong> 첫 화면에서 우리 반 학생 수(선생님 제외, 최대 40명)를 적고 "우리 반 교실 만들기"를 눌러요. 학생 수에 맞춰 책상 수가 정해져요.</li>
+      <li><strong>학생 들어오기</strong> 교실 왼쪽 위 <b>방 코드</b> 버튼을 누르면 큰 코드와 QR이 나와요. 학생들은 같은 주소를 열어 진짜 이름과 방 코드를 입력하거나 QR을 찍어요. 친구들에게는 동물 이름만 보이고, 진짜 이름은 선생님만 봐요.</li>
+      <li><strong>모두 앉히기</strong> 서 있는 학생을 빈 자리에 앉히고 "앉아야 합니다!"를 띄워요. 이때부터 학생은 종이비행기를 날릴 수 없어요.</li>
+      <li><strong>학생 현황</strong> 학생마다 상/중/하 수준을 눌러 정해요. 학생 화면에는 수준이 안 보여요. 문제를 푸는 동안 O/X와 맞힌 개수가 실시간으로 나와요.</li>
+      <li><strong>공부하기</strong> 오늘 목표 게이지(1~100)를 정하고 수준별로 문제와 정답을 적어 보내요. 안 적은 수준은 중 문제를 받아요. 학생 모두가 같은 몫으로 게이지를 채우고, 다 못 채우면 다음 문제 세트로 이어져요.</li>
+      <li><strong>자유롭게 하기</strong> 수업 중 상태(종이비행기 금지)를 풀어요.</li>
+    </ol>
+    <p class="note guide-warn">꼭 알아 두세요<br>· 방을 만든 <b>같은 기기·같은 브라우저</b>를 계속 쓰세요. 다른 기기로 열면 학생으로 들어가요.<br>· 서버가 다시 켜지면 교실이 사라져요. 수업 전에 미리 접속해 두고, 3시간 넘게 비어 있어도 교실이 닫혀요.<br>· 학생 이름은 서버에 저장되지 않아요. 교실이 닫히면 현황도 사라지니 필요하면 화면을 캡처해 두세요.</p>
+    <div class="study-actions guide-actions">
+      <button id="guide-close-btn" class="study-dan">닫기</button>
+      <button id="guide-snooze" class="study-dan">일주일 동안 보지 않기</button>
+    </div>
   </section>
 
   <div id="gauge" class="hud gauge glass" role="status" aria-label="우리 반 협동 게이지" hidden>
@@ -282,8 +305,13 @@
 
       <div class="entry-teacher">
         <p data-i18n="teacherAsk">선생님이신가요?</p>
+        <div class="students-row">
+          <label for="entry-students" data-i18n="classSize">우리 반 학생 수 (선생님 제외)</label>
+          <input id="entry-students" type="number" min="1" max="40" step="1" inputmode="numeric" value="25">
+        </div>
         <button id="btn-create" class="teacher-btn" data-i18n="create" disabled>우리 반 교실 만들기</button>
         <p class="note" data-i18n="teacherNote">만들면 방 코드와 QR 코드가 나와요. 학생들에게 보여 주세요.</p>
+        <button id="btn-guide-entry" class="text-btn" data-i18n="guideLink">선생님 사용 안내 보기</button>
       </div>
 
       <p class="note" data-i18n="bottomNote">학교 이름은 묻지 않아요. 친구들에게 보이는 이름은 자동으로 정해지는 동물 이름이에요.</p>

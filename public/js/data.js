@@ -8,8 +8,17 @@ export function parseRoomCode(code) {
   return /^\d{4}$/.test(code ?? '') ? String(code) : null;
 }
 
-export const ROOM_CAPACITY = 25;
-export const SEAT_COUNT = 25;
+// 학생 수는 선생님이 교실을 만들 때 정한다(선생님은 따로 센다). 책상은 학생 수에 맞춰 25 / 32 / 40자리 중 하나를 쓴다.
+export const DEFAULT_STUDENTS = 25;
+export const MAX_STUDENTS = 40;
+
+export function cleanStudents(count) {
+  return Number.isInteger(count) && count >= 1 && count <= MAX_STUDENTS ? count : DEFAULT_STUDENTS;
+}
+
+export function seatsFor(students) {
+  return students <= 25 ? 25 : students <= 32 ? 32 : 40;
+}
 
 export const ADJECTIVES = ['졸린', '용감한', '수줍은', '씩씩한', '작은', '느긋한', '반짝이는', '배고픈', '조용한', '신나는', '엉뚱한', '다정한'];
 export const ANIMALS = ['참새', '다람쥐', '토끼', '고양이', '강아지', '병아리', '거북이', '수달', '판다', '오리', '너구리', '여우'];

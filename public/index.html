@@ -141,6 +141,19 @@
   </div>
 
   <div id="entry" class="overlay entry" hidden>
+    <button id="btn-qr" class="qr-open" aria-label="QR 코드">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 20h2M18 18v2h2"/></svg>
+      <span>QR 코드</span>
+    </button>
+    <div id="qr-dialog" class="qr-dialog" role="dialog" aria-labelledby="qr-title" hidden>
+      <div class="qr-card">
+        <h2 id="qr-title">QR 코드로 들어오기</h2>
+        <div id="qr-code" class="qr-code"></div>
+        <p>태블릿이나 휴대폰 카메라로 찍으면<br>이 교실로 바로 들어와요.</p>
+        <p id="qr-url" class="qr-url"></p>
+        <button id="btn-qr-close" class="enter-btn">닫기</button>
+      </div>
+    </div>
     <div class="entry-inner">
       <h1>우리 교실</h1>
 
@@ -205,6 +218,7 @@
     <button id="btn-to-entry" class="text-btn">다른 교실 고르기</button>
   </div>
 
+  <script src="vendor/qrcode.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

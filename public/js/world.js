@@ -28,15 +28,15 @@ const MOODS = {
     sunDir: new THREE.Vector3(-24, 7, 8).normalize(),
     sunColor: 0xff9d5c,
     sunPower: 3.1,
-    hemi: [0xffc9a6, 0x8f6c58, 1.05],
+    hemi: [0xffd6ba, 0xb09078, 1.55],
     bounce: [0xff9c62, 11],
-    fill: [0xffc08e, 10],
+    fill: [0xffc99e, 20],
     skyLow: [1.0, 0.56, 0.32],
     skyHigh: [0.34, 0.33, 0.62],
     sunGlow: [1.0, 0.55, 0.25],
     cloud: 0xffb48f,
     shaft: [0.028, 0.016, 0.007],
-    exposure: 0.95,
+    exposure: 1.02,
   },
 };
 

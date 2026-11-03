@@ -235,7 +235,25 @@ async function chooseRoom(kind) {
   return parseRoomId(`${kind}-1`);
 }
 
+// 사이트 첫 화면 주소를 QR 코드로 보여 준다. 교실 TV에 띄워 두면 태블릿으로 바로 찍어 들어올 수 있다.
+function setupQr() {
+  const url = `${location.origin}/`;
+  $('btn-qr').onclick = () => {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    $('qr-code').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    $('qr-url').textContent = url;
+    $('qr-dialog').hidden = false;
+  };
+  $('btn-qr-close').onclick = () => { $('qr-dialog').hidden = true; };
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') $('qr-dialog').hidden = true;
+  });
+}
+
 function showEntry() {
+  setupQr();
   return new Promise((resolve) => {
     const picks = { kind: room?.kind ?? store.get('kind', null), region: store.get('region', null), gender: store.get('gender', null) };
     const select = $('entry-region');

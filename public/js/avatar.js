@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { LOOKS } from './data.js';
 
 const SKIN_ROUGH = 0.62;
+const JUMP_TIME = 0.55;
+const JUMP_HEIGHT = 0.55;
 const damp = (current, target, rate, dt) => current + (target - current) * (1 - Math.exp(-rate * dt));
 const std = (color, roughness = 0.75) => new THREE.MeshStandardMaterial({ color, roughness });
 
@@ -32,7 +34,7 @@ function mesh(geometry, material, parent, x = 0, y = 0, z = 0, sx = 1, sy = sx, 
 export class Avatar {
   constructor(look) {
     this.root = new THREE.Group();
-    this.anim = { walk: 0, sit: 0, phase: Math.random() * 6, emote: null, emoteTime: 0, idle: Math.random() * 6 };
+    this.anim = { walk: 0, sit: 0, phase: Math.random() * 6, emote: null, emoteTime: 0, idle: Math.random() * 6, jump: -1 };
     this.moving = false;
     this.seated = false;
     this.setLook(look);
@@ -152,8 +154,16 @@ export class Avatar {
     }
   }
 
-  // raise, bow, clap, throw
+  get airborne() {
+    return this.anim.jump >= 0;
+  }
+
+  // raise, bow, clap, throw, jump
   play(name) {
+    if (name === 'jump') {
+      if (!this.seated && !this.airborne) this.anim.jump = 0;
+      return;
+    }
     const durations = { raise: 2.2, bow: 1.5, clap: 1.8, throw: 0.75 };
     this.anim.emote = name;
     this.anim.emoteTime = 0;
@@ -230,6 +240,23 @@ export class Avatar {
         }
       }
       if (t >= len) a.emote = null;
+    }
+
+    if (a.jump >= 0) {
+      a.jump += dt / JUMP_TIME;
+      if (a.jump >= 1) {
+        a.jump = -1;
+      } else {
+        // 포물선으로 떠오르며 다리를 살짝 굽히고 팔을 벌린다.
+        const arc = 4 * a.jump * (1 - a.jump);
+        lift += JUMP_HEIGHT * arc;
+        legL = THREE.MathUtils.lerp(legL, -0.5, arc);
+        legR = THREE.MathUtils.lerp(legR, 0.3, arc);
+        if (!a.emote) {
+          armLZ = THREE.MathUtils.lerp(armLZ, -0.9, arc);
+          armRZ = THREE.MathUtils.lerp(armRZ, 0.9, arc);
+        }
+      }
     }
 
     this.legL.rotation.x = legL;

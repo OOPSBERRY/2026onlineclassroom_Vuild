@@ -499,6 +499,17 @@ function sitNearest() {
   showRing(nearest.standX, nearest.standZ);
 }
 
+function jump() {
+  if (player.seat >= 0) {
+    toast('일어서면 점프할 수 있어요');
+    return;
+  }
+  if (player.avatar.airborne) return;
+  player.act('jump');
+  sound.hop();
+  net.send({ t: 'act', a: 'jump' });
+}
+
 function updateSitButton() {
   const text = player.seat >= 0 || player.pendingSeat >= 0 ? '일어서기' : '앉기';
   const label = $('sit-text');
@@ -572,6 +583,8 @@ function updateNpcs(dt) {
       npc.act('throw');
     } else if (roll < 0.86) {
       npcSay(npc);
+    } else if (roll < 0.94 && npc.seat < 0) {
+      npc.act('jump');
     }
   }
 }
@@ -715,10 +728,23 @@ function setupInput() {
       closePanels();
       return;
     }
+    if (e.code === 'Space' && canJumpFromKey(e.target)) {
+      // 방금 누른 메뉴 버튼이 다시 눌리지 않게 막는다.
+      e.preventDefault();
+      if (!e.repeat) jump();
+      return;
+    }
     keys.add(e.code);
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
+}
+
+// 공부 창이나 설정 창을 쓰는 중에는 스페이스가 그 창의 버튼과 입력에 쓰이게 둔다.
+function canJumpFromKey(target) {
+  if (!$('study-dialog').hidden) return false;
+  if (target.closest?.('#dock')) return true;
+  return target === document.body || target === $('scene');
 }
 
 function updateHover(x, y, pick) {
@@ -1010,6 +1036,7 @@ function setupUi() {
   };
 
   $('btn-sit').onclick = toggleSit;
+  $('btn-jump').onclick = jump;
 
   // 축하는 내 화면에서만 한다. 점수와 동작을 서버로 보내지 않는다.
   const study = setupStudy({ sound, onFinish: () => player.avatar.play('clap') });
@@ -1070,7 +1097,8 @@ function updateCamera(dt) {
 
 function updateLabel(actor) {
   const seated = actor.avatar.seated;
-  tmp.set(actor.x, seated ? 1.42 : 1.5, actor.z).project(camera);
+  const jumpLift = actor.avatar.airborne ? actor.avatar.root.position.y : 0;
+  tmp.set(actor.x, (seated ? 1.42 : 1.5) + jumpLift, actor.z).project(camera);
   const visible = tmp.z < 1 && Math.abs(tmp.x) < 1.15 && Math.abs(tmp.y) < 1.15;
   actor.label.style.display = visible ? '' : 'none';
   if (!visible) return;

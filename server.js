@@ -7,7 +7,7 @@ import { MAX_ROOMS_PER_KIND, ROOM_CAPACITY, ROOM_KINDS, SEAT_COUNT, PHRASES, cle
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'public');
-const ACTIONS = new Set(['raise', 'bow', 'clap', 'throw']);
+const ACTIONS = new Set(['raise', 'bow', 'clap', 'throw', 'jump']);
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

@@ -129,6 +129,13 @@ export class Sound {
 
   whoosh() { this.burst(0.5, 0.55, 2300); }
 
+  hop() {
+    if (!this.ctx || !this.on) return;
+    const now = this.ctx.currentTime;
+    const osc = this.tone(300, now, 0.2, 0.09, 'triangle');
+    osc.frequency.exponentialRampToValueAtTime(720, now + 0.16);
+  }
+
   ding() {
     if (!this.ctx || !this.on) return;
     const now = this.ctx.currentTime;

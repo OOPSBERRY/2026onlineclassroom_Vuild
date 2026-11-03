@@ -551,6 +551,17 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   to { transform: translateY(105vh) rotate(620deg); opacity: 0.85; }
 }
 
+/* 휴대폰: 버튼 8개가 한 줄에 들어가면 누르기 어려워 두 줄로 놓는다. */
+@media (max-width: 520px) {
+  .hud-dock { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; border-radius: 26px; }
+  .hud-dock button { width: 100%; height: 52px; border-radius: 20px; }
+  .hud-dock button svg { width: 20px; height: 20px; }
+  .say-wrap { min-width: 0; }
+  #say-menu { bottom: 58px; }
+  .hint { bottom: 136px; }
+  .toast { bottom: 164px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pulse, .bubble { animation: none; }
   #confetti { display: none; }

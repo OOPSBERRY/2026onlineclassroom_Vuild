@@ -430,6 +430,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 #entry-region option { color: #1d2b25; background: #f6efdc; }
 .entry .enter-btn { margin-top: 2px; height: 54px; padding: 0; font-weight: 700; font-size: 18px; }
 .entry .note { margin-top: 12px; font-size: 13px; }
+.entry .entry-credit { margin-top: 10px; font-size: 13px; }
+.entry-credit a { display: inline-block; padding: 4px 2px; color: var(--chalk-yellow); text-underline-offset: 3px; }
 
 .qr-open {
   position: absolute;

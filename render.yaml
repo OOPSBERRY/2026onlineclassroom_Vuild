@@ -1,0 +1,9 @@
+# Render에서 이 저장소를 Blueprint로 연결하면 아래 설정대로 서버가 만들어진다.
+services:
+  - type: web
+    name: online-classroom
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /

@@ -1,4 +1,6 @@
-import { QUESTION_COUNT, makeQuestions, resultMessage } from './gugudan.js';
+import { quizText } from './data.js';
+import { QUESTION_COUNT, makeQuestions, resultKey } from './gugudan.js';
+import { uiText } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const RIGHT_DELAY = 800;
@@ -6,7 +8,8 @@ const WRONG_DELAY = 1700;
 const MAX_DIGITS = 2;
 
 // 구구단과 나눗셈 창. 문제와 점수는 내 화면에만 있고 서버로 보내지 않는다.
-export function setupStudy({ sound, onFinish }) {
+export function setupStudy({ sound, onFinish, getLang }) {
+  const t = (key, ...args) => uiText(key, getLang(), ...args);
   const state = { mode: 'multiply', dan: 0, questions: [], index: 0, correct: 0, input: '', locked: false, timer: null };
 
   const show = (stage) => {
@@ -50,7 +53,7 @@ export function setupStudy({ sound, onFinish }) {
     const q = state.questions[state.index];
     const right = Number(state.input) === q.answer;
     if (right) state.correct += 1;
-    $('study-feedback').textContent = right ? '딩동댕!' : `정답은 ${q.answer}이에요`;
+    $('study-feedback').textContent = right ? quizText('right', getLang()) : quizText('wrong', getLang(), q.answer);
     $('study-feedback').className = `study-feedback ${right ? 'right' : 'wrong'}`;
     if (right) sound.ding();
     else sound.pop();
@@ -66,8 +69,8 @@ export function setupStudy({ sound, onFinish }) {
   }
 
   function finish() {
-    $('study-score').textContent = `${QUESTION_COUNT}개 중 ${state.correct}개 맞았어요`;
-    $('study-message').textContent = resultMessage(state.correct, state.mode);
+    $('study-score').textContent = quizText('score', getLang(), state.correct, QUESTION_COUNT);
+    $('study-message').textContent = t(resultKey(state.correct, state.mode));
     show('study-result');
     sound.fanfare();
     celebrate();
@@ -103,15 +106,15 @@ export function setupStudy({ sound, onFinish }) {
 
   function renderPick() {
     const dividing = state.mode === 'divide';
-    $('study-lead').textContent = dividing ? '어떤 수로 나눠 볼까요?' : '몇 단을 풀어 볼까요?';
+    $('study-lead').textContent = t(dividing ? 'leadDivide' : 'leadMultiply');
     for (const button of document.querySelectorAll('[data-study-mode]')) {
       button.setAttribute('aria-pressed', button.dataset.studyMode === state.mode);
     }
     $('study-dans').replaceChildren(...[2, 3, 4, 5, 6, 7, 8, 9, 0].map((dan) => {
       const button = document.createElement('button');
       button.className = dan ? 'study-dan' : 'study-dan all';
-      if (!dan) button.textContent = '전체 섞기';
-      else button.textContent = dividing ? `÷ ${dan}` : `${dan}단`;
+      if (!dan) button.textContent = t('shuffleAll');
+      else button.textContent = dividing ? `÷ ${dan}` : t('dan', dan);
       button.onclick = () => start(dan);
       return button;
     }));
@@ -127,12 +130,14 @@ export function setupStudy({ sound, onFinish }) {
   $('study-keys').replaceChildren(...[1, 2, 3, 4, 5, 6, 7, 8, 9, 'erase', 0, 'submit'].map((key) => {
     const button = document.createElement('button');
     if (key === 'erase') {
-      button.textContent = '지우기';
+      button.textContent = t('erase');
+      button.dataset.i18n = 'erase';
       button.className = 'study-key small';
       button.onclick = erase;
     } else if (key === 'submit') {
       button.id = 'study-submit';
-      button.textContent = '확인';
+      button.textContent = t('okBtn');
+      button.dataset.i18n = 'okBtn';
       button.className = 'study-key small primary';
       button.onclick = submit;
     } else {
@@ -158,5 +163,6 @@ export function setupStudy({ sound, onFinish }) {
     }
   });
 
-  return { open };
+  // 언어를 바꾸면 고르는 화면의 글자를 다시 그린다.
+  return { open, refresh: renderPick };
 }

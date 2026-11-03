@@ -3,6 +3,7 @@ import { Avatar } from './avatar.js';
 import { Board } from './board.js';
 import { setupClassQuiz } from './classquiz.js';
 import { HAIR_BY_GENDER, LANGS, LOOKS, MENU_TITLES, PHRASES, SIT_ALERT, cleanLang, phraseText, quizText, ROOM_CAPACITY, ROOM_CODE_LENGTH, nickName, parseRoomCode, phrasesFor, randomHair, randomLook, randomNick } from './data.js';
+import { applyI18n, uiText } from './i18n.js';
 import { Nav } from './nav.js';
 import { Net } from './net.js';
 import { currentPeriod } from './schedule.js';
@@ -45,6 +46,7 @@ const nameStore = {
   set(value) { try { sessionStorage.setItem('classroom.name', value); } catch { /* 저장 못 해도 된다 */ } },
 };
 let realName = nameStore.get();
+const t = (key, ...args) => uiText(key, lang, ...args);
 const settings = { volume: 0.7, shadows: true, ...store.get('settings', {}) };
 
 const sound = new Sound();
@@ -68,6 +70,7 @@ let net;
 let isTeacher = false;
 let focus = false;
 let classQuiz;
+let study;
 
 class Actor {
   constructor({ id, lookValue, nickValue, kind, teacher = false, realName = '' }) {
@@ -103,7 +106,7 @@ class Actor {
   }
 
   renderPlate() {
-    const badge = { me: '나' }[this.kind];
+    const badge = { me: t('me') }[this.kind];
     this.plate.className = `nameplate ${badge ? '' : 'plain'} ${this.teacher ? 'teacher' : ''}`;
     this.plate.textContent = '';
     if (badge) {
@@ -113,7 +116,7 @@ class Actor {
       this.plate.append(mark);
     }
     // 진짜 이름은 선생님 화면에만 온다. 친구들 화면에는 동물 이름만 보인다.
-    this.plate.append(this.teacher ? '선생님' : this.realName ? `${this.realName} (${nickName(this.nick)})` : nickName(this.nick));
+    this.plate.append(this.teacher ? t('teacherName') : this.realName ? `${this.realName} (${nickName(this.nick)})` : nickName(this.nick));
   }
 
   say(text) {
@@ -257,15 +260,10 @@ async function createRoom() {
   try {
     const response = await fetch('/api/create', { method: 'POST' });
     if (response.ok) return await response.json();
-    return { error: response.status === 429 ? '잠시 뒤에 다시 만들어 주세요.' : '지금은 교실을 만들 수 없어요.' };
-  } catch { return { error: '서버에 연결할 수 없어요. 인터넷을 확인해 주세요.' }; }
+    return { errorKey: 'err_create' };
+  } catch { return { errorKey: 'err_offline' }; }
 }
 
-const ENTRY_MESSAGES = {
-  none: '없는 방 코드예요. 선생님이 알려 준 숫자를 다시 확인해 주세요.',
-  full: '이 교실은 자리가 다 찼어요.',
-  busy: '너무 자주 눌렀어요. 잠시 뒤에 다시 해 주세요.',
-};
 
 // 방 코드와 QR 코드를 보여 준다. 칠판 앞 TV에 띄워 두면 학생들이 코드를 입력하거나 태블릿으로 찍어 들어온다.
 function setupQr() {
@@ -284,7 +282,29 @@ function setupQr() {
   $('qr-dialog').onclick = (e) => { if (e.target === $('qr-dialog')) $('qr-dialog').hidden = true; };
 }
 
-function showEntry(notice = '') {
+// 화면의 글자를 고른 언어로 모두 바꾼다. 교실에 들어가기 전에는 첫 화면만 바뀐다.
+function applyLang() {
+  applyI18n(document, lang);
+  document.documentElement.lang = lang;
+  if (!player || !classQuiz) return;
+  player.renderPlate();
+  for (const actor of actors.values()) actor.renderPlate();
+  renderLookOptions();
+  renderSayMenu();
+  classQuiz.render();
+  study.refresh();
+  setPeriodLabel();
+  renderSoundLabel();
+  renderStats();
+  document.title = roomCode + ' · ' + t('brand');
+  $('btn-room').title = t('codeAria');
+}
+
+function renderSoundLabel() {
+  $('btn-sound').setAttribute('aria-label', t(sound.on ? 'soundOff' : 'soundOn'));
+}
+
+function showEntry(noticeKey = '') {
   return new Promise((resolve) => {
     let gender = store.get('gender', null);
     const input = $('entry-code');
@@ -293,12 +313,16 @@ function showEntry(notice = '') {
     input.value = roomCode ?? '';
     const nameInput = $('entry-name');
     nameInput.value = realName;
-    fillLangSelect($('entry-lang'));
+    fillLangSelect($('entry-lang'), () => { applyLang(); showError(errorKey); });
+    applyLang();
 
-    const showError = (text) => {
-      error.textContent = text;
-      error.hidden = !text;
-    };
+    // 오류는 글 대신 키를 기억해 두고, 언어를 바꾸면 다시 번역해 보여 준다.
+    let errorKey = '';
+    function showError(key) {
+      errorKey = key;
+      error.textContent = key ? uiText(key, lang) : '';
+      error.hidden = !key;
+    }
     const refresh = () => {
       genderCards.forEach((c) => c.setAttribute('aria-pressed', Number(c.dataset.gender) === gender));
       $('btn-enter').disabled = gender === null || !nameInput.value.trim() || input.value.length !== ROOM_CODE_LENGTH;
@@ -339,7 +363,7 @@ function showEntry(notice = '') {
         finish(code);
         return;
       }
-      showError(ENTRY_MESSAGES[status]);
+      showError('err_' + status);
       refresh();
     };
 
@@ -351,30 +375,32 @@ function showEntry(notice = '') {
         finish(result.code, result.token);
         return;
       }
-      showError(result.error);
+      showError(result.errorKey);
       refresh();
     };
 
-    showError(notice);
+    showError(noticeKey);
     refresh();
     $('entry').hidden = false;
   });
 }
 
 async function boot() {
+  applyLang();
   // QR이나 링크로 방 코드가 같이 왔고 모습도 이미 골랐다면 바로 들어간다. 아니면 입구부터 거친다.
   let notice = '';
   let ready = false;
   if (roomCode && store.get('gender', null) !== null && (realName || store.get(`host.${roomCode}`, null))) {
     const status = await lookupRoom(roomCode);
     ready = status === 'ok' || status === 'offline';
-    if (!ready) notice = ENTRY_MESSAGES[status];
+    if (!ready) notice = 'err_' + status;
   }
   if (!ready) await showEntry(notice);
   try {
     renderer = new THREE.WebGLRenderer({ canvas: $('scene'), antialias: true, powerPreference: 'high-performance' });
   } catch {
-    $('loader-text').textContent = '이 브라우저에서는 3D 교실을 열 수 없어요';
+    $('loader-text').textContent = t('noWebgl');
+    $('loader-text').removeAttribute('data-i18n');
     document.querySelector('.pulse').hidden = true;
     return;
   }
@@ -423,7 +449,7 @@ async function boot() {
     $('loader').classList.add('fade');
     setTimeout(() => {
       $('loader').hidden = true;
-      toast(`방 코드 ${roomCode} 교실에 들어왔어요. 같은 방 친구들만 보여요.`);
+      toast(t('joined', roomCode));
     }, 950);
   }, 900);
   setTimeout(() => $('hint').classList.add('gone'), 11000);
@@ -513,13 +539,13 @@ function connect() {
     sit: (msg) => forceSit(msg.seat),
     focus(msg) {
       setFocus(msg.on);
-      if (!isTeacher) toast(msg.on ? '지금은 종이비행기를 날릴 수 없어요' : '다시 종이비행기를 날릴 수 있어요');
+      if (!isTeacher) toast(t(msg.on ? 'noPlane' : 'planeOk'));
     },
     gauge: (msg) => setGauge(msg),
     gaugeFull() {
       celebrate();
       sound.fanfare();
-      toast('우리 반이 목표 게이지를 모두 채웠어요!');
+      toast(t('gaugeFull'));
     },
     progress(msg) {
       progressData = msg;
@@ -527,7 +553,7 @@ function connect() {
     },
     noname() {
       net.full = true;
-      toast('이름을 적고 다시 들어와 주세요.');
+      toast(t('nonameToast'));
       setTimeout(() => { location.search = searchWithRoom(null); }, 2000);
     },
     quiz(msg) {
@@ -536,18 +562,18 @@ function connect() {
     },
     quizEnd() {
       classQuiz.end();
-      toast('선생님이 문제를 끝냈어요');
+      toast(t('quizEndToast'));
     },
     result: (msg) => classQuiz.result(msg),
     quizSent: (msg) => toast(`학생 ${msg.count}명에게 문제를 보냈어요`),
     full() {
       net.full = true;
-      toast('이 교실은 자리가 다 찼어요.');
+      toast(t('err_full'));
     },
     // 오래 비어 닫혔거나 서버가 다시 시작된 경우다. 처음 화면에서 코드를 다시 입력하게 한다.
     closed() {
       net.full = true;
-      toast('이 교실은 닫혔어요. 처음 화면으로 돌아가요.');
+      toast(t('closedToast'));
       setTimeout(() => { location.search = searchWithRoom(null); }, 2500);
     },
     lost() {
@@ -578,7 +604,7 @@ function setFocus(on) {
   focus = on;
   const button = document.querySelector('[data-act="throw"]');
   button.disabled = on && !isTeacher;
-  button.title = button.disabled ? '선생님이 수업을 시작해서 날릴 수 없어요' : '';
+  button.title = button.disabled ? t('planeLocked') : '';
 }
 
 const LEVELS = ['high', 'mid', 'low'];
@@ -662,7 +688,7 @@ function forceSit(seat) {
   sound.chime();
   if (player.seat >= 0) return;
   if (seat < 0) {
-    toast('지금은 빈자리가 없어요');
+    toast(t('noSeat'));
     return;
   }
   player.goToSeat(seat);
@@ -836,7 +862,7 @@ function sitNearest() {
   const distance = (seat) => Math.hypot(seat.standX - player.x, seat.standZ - player.z);
   const nearest = freeSeats().sort((a, b) => distance(a) - distance(b))[0];
   if (!nearest) {
-    toast('지금은 빈자리가 없어요');
+    toast(t('noSeat'));
     return;
   }
   player.goToSeat(nearest.index);
@@ -845,7 +871,7 @@ function sitNearest() {
 
 function jump() {
   if (player.seat >= 0) {
-    toast('일어서면 점프할 수 있어요');
+    toast(t('jumpStand'));
     return;
   }
   if (player.avatar.airborne) return;
@@ -855,7 +881,7 @@ function jump() {
 }
 
 function updateSitButton() {
-  const text = player.seat >= 0 || player.pendingSeat >= 0 ? '일어서기' : '앉기';
+  const text = player.seat >= 0 || player.pendingSeat >= 0 ? t('stand') : t('sit');
   const label = $('sit-text');
   if (label.textContent !== text) label.textContent = text;
 }
@@ -1017,7 +1043,7 @@ function canJumpFromKey(target) {
 function updateHover(x, y, pick) {
   const hit = pick(x, y);
   const tip = $('hover-tip');
-  const text = hit?.object.userData.seat !== undefined ? '여기 앉기' : '';
+  const text = hit?.object.userData.seat !== undefined ? t('sitHere') : '';
   tip.hidden = !text;
   $('scene').style.cursor = hit ? 'pointer' : 'grab';
   if (text) {
@@ -1033,7 +1059,7 @@ function handleClick(hit) {
   if (seat !== undefined) {
     const occupied = [...actors.values()].some((a) => a.seat === seat || a.pendingSeat === seat);
     if (occupied) {
-      toast('다른 친구가 앉은 자리예요');
+      toast(t('seatTaken'));
       return;
     }
     if (player.seat === seat) return;
@@ -1117,12 +1143,12 @@ function renderLookOptions() {
   $('opt-hair').replaceChildren(...hairs.map((i) => {
     const button = document.createElement('button');
     button.className = 'chip';
-    button.textContent = LOOKS.hair[i];
+    button.textContent = t('hair' + i);
     button.setAttribute('aria-pressed', look.hair === i);
     button.onclick = () => { look.hair = i; saveLook(); renderLookOptions(); };
     return button;
   }));
-  const labels = { hairColor: '머리 색', skin: '피부', shirt: '옷', bag: '가방' };
+  const labels = { hairColor: t('hairColor'), skin: t('skin'), shirt: t('shirt'), bag: t('bag') };
   for (const key of Object.keys(labels)) {
     $(`opt-${key}`).replaceChildren(...LOOKS[key].map((color, i) => {
       const button = document.createElement('button');
@@ -1170,6 +1196,13 @@ function renderSayMenu() {
 }
 
 // 오늘과 전체 이용자 수. 못 가져오면 표시만 숨기고 교실은 그대로 쓴다.
+let siteStats = null;
+
+function renderStats() {
+  $('site-stats').hidden = !siteStats;
+  if (siteStats) $('site-stats').textContent = t('stats', siteStats.daily, siteStats.total);
+}
+
 async function loadSiteStats() {
   const base = 'https://minfp-online-classroom.goatcounter.com/counter/TOTAL.json';
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -1180,15 +1213,16 @@ async function loadSiteStats() {
   };
   try {
     const [daily, total] = await Promise.all([read(`${base}?start=${today}`), read(base)]);
-    $('site-stats').textContent = `오늘 ${daily} · 전체 ${total}`;
-    $('site-stats').hidden = false;
+    siteStats = { daily, total };
+    renderStats();
   } catch {
-    $('site-stats').hidden = true;
+    siteStats = null;
+    renderStats();
   }
 }
 
 function setPeriodLabel() {
-  $('period').textContent = period.label;
+  $('period').textContent = t(period.kind === 'class' ? 'periodClass' : 'periodBreak') + ' · ' + t('left', period.remaining, period.unit);
 }
 
 function checkPeriod() {
@@ -1199,14 +1233,14 @@ function checkPeriod() {
   if (!changed) return;
   renderSayMenu();
   sound.chime();
-  toast(period.kind === 'class' ? '수업 시작이에요' : '쉬는 시간이에요');
+  toast(t(period.kind === 'class' ? 'classStart' : 'breakStart'));
 }
 
 function setupUi() {
   $('room-name').textContent = roomCode;
   loadSiteStats();
   setInterval(loadSiteStats, 10 * 60 * 1000);
-  document.title = `${roomCode} · 우리 교실`;
+  document.title = roomCode + ' · ' + t('brand');
   setPeriodLabel();
   saveLookChip();
   renderLookOptions();
@@ -1235,16 +1269,16 @@ function setupUi() {
   const setSound = (on) => {
     sound.setOn(on);
     $('btn-sound').dataset.on = on;
-    $('btn-sound').setAttribute('aria-label', on ? '소리 끄기' : '소리 켜기');
+    renderSoundLabel();
   };
   $('btn-sound').onclick = () => setSound(!sound.on);
   $('btn-bell').onclick = () => {
     setSound(true);
     sound.chime();
-    toast('딩동댕동 — 수업 종이 울려요');
+    toast(t('bellToast'));
   };
 
-  fillLangSelect($('set-lang'), () => { renderSayMenu(); classQuiz.render(); });
+  fillLangSelect($('set-lang'), applyLang);
   $('set-volume').value = settings.volume;
   $('set-volume').oninput = (e) => {
     settings.volume = Number(e.target.value);
@@ -1271,7 +1305,7 @@ function setupUi() {
   $('btn-jump').onclick = jump;
 
   // 축하는 내 화면에서만 한다. 점수와 동작을 서버로 보내지 않는다.
-  const study = setupStudy({ sound, onFinish: () => player.avatar.play('clap') });
+  study = setupStudy({ sound, getLang: () => lang, onFinish: () => player.avatar.play('clap') });
   $('btn-study').onclick = () => {
     if (player.seat < 0 && player.pendingSeat < 0) sitNearest();
     closePopovers();
@@ -1283,7 +1317,7 @@ function setupUi() {
     button.onclick = () => {
       const action = button.dataset.act;
       if (action === 'throw' && focus && !isTeacher) {
-        toast('지금은 종이비행기를 날릴 수 없어요');
+        toast(t('noPlane'));
         return;
       }
       player.act(action);

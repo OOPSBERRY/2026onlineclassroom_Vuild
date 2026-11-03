@@ -30,9 +30,9 @@ export function makeQuestions(dan, mode = 'multiply') {
   return questions;
 }
 
-export function resultMessage(correct, mode = 'multiply') {
-  if (correct === QUESTION_COUNT) return `모두 맞았어요! ${mode === 'divide' ? '나눗셈' : '구구단'} 박사님이에요!`;
-  if (correct >= 8) return '정말 잘했어요!';
-  if (correct >= 5) return '잘했어요! 조금만 더 해 볼까요?';
-  return '끝까지 푼 것이 멋져요! 한 번 더 해 봐요!';
+export function resultKey(correct, mode = 'multiply') {
+  if (correct === QUESTION_COUNT) return mode === 'divide' ? 'perfectDivide' : 'perfectMultiply';
+  if (correct >= 8) return 'great';
+  if (correct >= 5) return 'good';
+  return 'keepGoing';
 }

@@ -85,6 +85,27 @@ export function quizText(key, lang, ...args) {
   return typeof entry === 'function' ? entry(...args) : entry;
 }
 
+// 첫 화면(입장 화면)의 글자. 고른 언어로 바뀐다. 키는 index.html의 data-i18n과 같다.
+export const UI_TEXT = {
+  gender: { ko: '어떤 친구로 들어갈까요?', en: 'Which character do you want to be?', zh: '你想选哪个小朋友？', vi: 'Bạn muốn vào lớp là bạn nào?', ru: 'Каким учеником вы хотите войти?' },
+  boy: { ko: '남자 어린이', en: 'Boy', zh: '男孩', vi: 'Bạn nam', ru: 'Мальчик' },
+  girl: { ko: '여자 어린이', en: 'Girl', zh: '女孩', vi: 'Bạn nữ', ru: 'Девочка' },
+  nameLabel: { ko: '내 이름을 적어 주세요 (진짜 이름)', en: 'Please write your name (real name)', zh: '请填写你的名字（真名）', vi: 'Hãy nhập tên của bạn (tên thật)', ru: 'Введите своё имя (настоящее)' },
+  namePlaceholder: { ko: '예) 김민준', en: 'e.g. Minjun Kim', zh: '例）金民俊', vi: 'VD: Kim Min Jun', ru: 'напр. Ким Минджун' },
+  nameNote: { ko: '이름은 선생님만 볼 수 있어요. 친구들에게는 동물 이름으로 보여요.', en: 'Only your teacher can see your name. Your friends see an animal name.', zh: '只有老师能看到你的名字，同学们看到的是动物名字。', vi: 'Chỉ thầy cô thấy tên của bạn. Các bạn sẽ thấy tên con vật.', ru: 'Имя видит только учитель. Друзья видят имя животного.' },
+  codeLabel: { ko: '선생님이 알려 준 방 코드를 입력해요', en: 'Enter the room code your teacher gave you', zh: '请输入老师告诉你的房间码', vi: 'Nhập mã phòng thầy cô đã cho', ru: 'Введите код комнаты, который дал учитель' },
+  enter: { ko: '교실 들어가기', en: 'Enter the classroom', zh: '进入教室', vi: 'Vào lớp học', ru: 'Войти в класс' },
+  teacherAsk: { ko: '선생님이신가요?', en: 'Are you a teacher?', zh: '您是老师吗？', vi: 'Bạn là giáo viên?', ru: 'Вы учитель?' },
+  create: { ko: '우리 반 교실 만들기', en: 'Create our classroom', zh: '创建我们班的教室', vi: 'Tạo lớp học cho lớp mình', ru: 'Создать класс' },
+  teacherNote: { ko: '만들면 방 코드와 QR 코드가 나와요. 학생들에게 보여 주세요.', en: 'You will get a room code and a QR code. Show them to your students.', zh: '创建后会出现房间码和二维码，请展示给学生。', vi: 'Sau khi tạo sẽ có mã phòng và mã QR. Hãy cho học sinh xem.', ru: 'Появятся код комнаты и QR-код. Покажите их ученикам.' },
+  bottomNote: { ko: '학교 이름은 묻지 않아요. 친구들에게 보이는 이름은 자동으로 정해지는 동물 이름이에요.', en: "We don't ask for your school name. Your friends see a random animal name.", zh: '我们不询问学校名称。同学们看到的是自动分配的动物名字。', vi: 'Chúng tôi không hỏi tên trường. Các bạn thấy tên con vật được đặt tự động.', ru: 'Название школы не спрашивается. Друзья видят случайное имя животного.' },
+  err_none: { ko: '없는 방 코드예요. 선생님이 알려 준 숫자를 다시 확인해 주세요.', en: "That room code doesn't exist. Check the number your teacher gave you.", zh: '没有这个房间码，请再确认老师告诉你的数字。', vi: 'Mã phòng không tồn tại. Hãy kiểm tra lại số thầy cô đã cho.', ru: 'Такого кода нет. Проверьте цифры, которые дал учитель.' },
+  err_full: { ko: '이 교실은 자리가 다 찼어요.', en: 'This classroom is full.', zh: '这个教室已经满了。', vi: 'Lớp học này đã đầy.', ru: 'В этом классе нет мест.' },
+  err_busy: { ko: '너무 자주 눌렀어요. 잠시 뒤에 다시 해 주세요.', en: 'Too many tries. Please try again in a moment.', zh: '点得太频繁了，请稍后再试。', vi: 'Bạn bấm quá nhiều lần. Hãy thử lại sau.', ru: 'Слишком много попыток. Попробуйте позже.' },
+  err_create: { ko: '지금은 교실을 만들 수 없어요.', en: "Can't create a classroom right now.", zh: '现在无法创建教室。', vi: 'Hiện không thể tạo lớp học.', ru: 'Сейчас нельзя создать класс.' },
+  err_offline: { ko: '서버에 연결할 수 없어요. 인터넷을 확인해 주세요.', en: "Can't connect to the server. Check your internet.", zh: '无法连接服务器，请检查网络。', vi: 'Không thể kết nối máy chủ. Hãy kiểm tra internet.', ru: 'Нет связи с сервером. Проверьте интернет.' },
+};
+
 export function cleanLang(code) {
   return LANGS.some((l) => l.code === code) ? code : 'ko';
 }

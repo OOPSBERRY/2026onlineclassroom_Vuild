@@ -34,11 +34,12 @@ export function currentPeriod(now = Date.now(), speed = 1) {
   const elapsed = now - count * cycle;
   const inClass = elapsed < classLength;
   const left = inClass ? classLength - elapsed : cycle - elapsed;
-  const remaining = speed === 1 ? `${Math.ceil(left / 60000)}분` : `${Math.ceil(left / 1000)}초`;
+  const remaining = speed === 1 ? Math.ceil(left / 60000) : Math.ceil(left / 1000);
   const kind = inClass ? 'class' : 'break';
   return {
     kind,
     key: `${kind}-${count}`,
-    label: `${inClass ? '수업 시간' : '쉬는 시간'} · ${remaining} 남음`,
+    remaining,
+    unit: speed === 1 ? 'min' : 'sec',
   };
 }

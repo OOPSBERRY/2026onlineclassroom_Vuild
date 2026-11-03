@@ -159,7 +159,7 @@
     <span class="teacher-title">선생님</span>
     <button id="btn-sit-all">모두 앉히기</button>
     <button id="btn-teach">공부하기</button>
-    <button id="btn-results">결과 보기</button>
+    <button id="btn-results">학생 현황</button>
     <button id="btn-free">자유롭게 하기</button>
   </aside>
 
@@ -170,28 +170,47 @@
         <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
       </button>
     </div>
-    <p class="study-lead">문제와 정답을 적어 보내면 학생들 화면에 문제가 나와요.</p>
+    <p class="study-lead">수준(상/중/하)별로 문제를 적어 보내요. 안 적은 수준의 학생은 중 문제를 받아요.</p>
+    <div class="goal-row">
+      <label for="teacher-goal">오늘 목표 게이지 (1~100)</label>
+      <input id="teacher-goal" type="number" min="1" max="100" step="1" inputmode="numeric">
+      <button id="btn-gauge-reset" class="chip">게이지 처음부터</button>
+    </div>
+    <div class="study-modes level-tabs" role="tablist" aria-label="수준">
+      <button class="study-mode" data-level-tab="high">상</button>
+      <button class="study-mode" data-level-tab="mid">중</button>
+      <button class="study-mode" data-level-tab="low">하</button>
+    </div>
     <div id="teacher-rows" class="teacher-rows"></div>
-    <button id="btn-row-add" class="chip">+ 문제 추가</button>
+    <div class="row-tools">
+      <button id="btn-row-add" class="chip">+ 문제 추가</button>
+      <button id="btn-copy-mid" class="chip" hidden>중 문제를 여기에 복사</button>
+    </div>
     <div class="study-actions">
       <button id="btn-quiz-send" class="study-dan all">학생들에게 문제 보내기</button>
       <button id="btn-quiz-end" class="study-dan">문제 끝내기</button>
     </div>
-    <p class="note">문제는 15개까지, 정답은 짧게 써 주세요. 정답은 띄어쓰기와 대소문자를 구분하지 않아요. 문제는 번역되지 않고 쓴 그대로 보여요.</p>
+    <p class="note">수준마다 15개까지, 정답은 짧게 써 주세요. 정답은 띄어쓰기와 대소문자를 구분하지 않아요. 문제는 번역되지 않고 쓴 그대로 보여요. 게이지는 문제를 여러 번 보내도 이어서 채워져요. 수준은 "학생 현황"에서 정해요.</p>
   </section>
 
   <section id="result-dialog" class="glass study-dialog teacher-dialog" role="dialog" aria-labelledby="result-title" hidden>
     <div class="study-head">
-      <h2 id="result-title">학생 결과 <span id="result-total" class="result-total"></span></h2>
+      <h2 id="result-title">학생 현황</h2>
       <button id="result-close" class="icon-btn" aria-label="닫기">
         <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
       </button>
     </div>
-    <p id="result-empty" class="study-lead">학생이 답을 내면 여기에 나타나요.</p>
+    <p id="result-empty" class="study-lead">학생이 들어오면 여기에 나타나요. 상/중/하 수준을 눌러 정해 주세요.</p>
     <div id="result-rows" class="result-rows"></div>
-    <p class="note">O 맞음 · X 틀림 · · 아직 안 풂. 한 문제는 처음 낸 답만 점수에 들어가요. 학생이 나가도 결과는 남아요.</p>
+    <p class="note">수준은 선생님 화면에만 보여요. 문제를 아직 안 푼 학생은 바로 바뀌고, 푼 학생은 다음 문제 세트부터 바뀌어요. O 맞음 · X 틀림 · · 아직 안 풂. 한 문제는 처음 낸 답만 점수에 들어가요. 학생이 나가도 결과는 남아요.</p>
     <div class="study-actions"><button id="btn-result-end" class="study-dan">문제 끝내기</button></div>
   </section>
+
+  <div id="gauge" class="hud gauge glass" role="status" aria-label="우리 반 협동 게이지" hidden>
+    <span class="gauge-label">우리 반 협동 게이지</span>
+    <div class="gauge-bar"><i id="gauge-fill"></i></div>
+    <strong id="gauge-text"></strong>
+  </div>
 
   <div id="sit-alert" class="sit-alert" role="alert" hidden>
     <strong id="sit-alert-ko"></strong>

@@ -474,6 +474,7 @@ function connect() {
     welcome(msg) {
       isTeacher = !!msg.teacher;
       setFocus(!!msg.focus);
+      setGauge(msg.gauge);
       player.teacher = isTeacher;
       player.renderPlate();
       $('teacher-bar').hidden = !isTeacher;
@@ -513,6 +514,12 @@ function connect() {
     focus(msg) {
       setFocus(msg.on);
       if (!isTeacher) toast(msg.on ? '지금은 종이비행기를 날릴 수 없어요' : '다시 종이비행기를 날릴 수 있어요');
+    },
+    gauge: (msg) => setGauge(msg),
+    gaugeFull() {
+      celebrate();
+      sound.fanfare();
+      toast('우리 반이 목표 게이지를 모두 채웠어요!');
     },
     progress(msg) {
       progressData = msg;
@@ -574,24 +581,37 @@ function setFocus(on) {
   button.title = button.disabled ? '선생님이 수업을 시작해서 날릴 수 없어요' : '';
 }
 
-// 학생별로 푼 문제 수와 맞힌 개수를 표로 보여 준다.
+const LEVELS = ['high', 'mid', 'low'];
+const LEVEL_NAMES = { high: '상', mid: '중', low: '하' };
+
+// 학생 현황 표: 이름, 수준(선생님이 고른다), 문제별 맞고 틀림, 맞힌 개수.
 function renderProgress() {
-  const box = $('result-rows');
-  if (!progressData) {
-    box.replaceChildren();
-    $('result-empty').hidden = false;
-    return;
-  }
-  $('result-empty').hidden = true;
-  $('result-total').textContent = `문제 ${progressData.total}개`;
-  box.replaceChildren(...progressData.rows.map((row) => {
-    const done = [...row.marks].filter((c) => c !== '-').length;
-    const right = [...row.marks].filter((c) => c === 'o').length;
+  const rows = progressData?.rows ?? [];
+  $('result-empty').hidden = rows.length > 0;
+  $('result-rows').replaceChildren(...rows.map((row) => {
     const line = document.createElement('div');
     line.className = 'result-row';
     if (!row.here) line.classList.add('away');
+
     const name = document.createElement('strong');
     name.textContent = row.name + (row.here ? '' : ' (나감)');
+
+    const levels = document.createElement('span');
+    levels.className = 'levels';
+    for (const level of LEVELS) {
+      const button = document.createElement('button');
+      button.textContent = LEVEL_NAMES[level];
+      button.setAttribute('aria-pressed', row.level === level);
+      button.setAttribute('aria-label', row.name + ' ' + LEVEL_NAMES[level] + ' 수준');
+      button.onclick = () => net.send({ t: 'level', name: row.name, level });
+      levels.append(button);
+    }
+    if (row.next) {
+      const note = document.createElement('em');
+      note.textContent = '다음 세트부터';
+      levels.append(note);
+    }
+
     const marks = document.createElement('span');
     marks.className = 'marks';
     for (const c of row.marks) {
@@ -600,13 +620,36 @@ function renderProgress() {
       dot.textContent = c === 'o' ? 'O' : c === 'x' ? 'X' : '·';
       marks.append(dot);
     }
+
     const score = document.createElement('span');
     score.className = 'score';
-    score.textContent = `${right}/${progressData.total}`;
-    score.title = `${done}문제 풀고 ${right}개 맞힘`;
-    line.append(name, marks, score);
+    if (row.marks) score.textContent = [...row.marks].filter((c) => c === 'o').length + '/' + row.marks.length;
+    line.append(name, levels, marks, score);
     return line;
   }));
+}
+
+// 협동 게이지. 모두가 보고, 선생님이 정한 목표까지 학생들이 함께 채운다.
+function setGauge(gauge) {
+  $('gauge').hidden = !gauge;
+  if (!gauge) return;
+  const value = Math.min(gauge.value, gauge.goal);
+  $('gauge-fill').style.width = (gauge.goal ? (value / gauge.goal) * 100 : 0) + '%';
+  $('gauge-text').textContent = Math.floor(value) + ' / ' + gauge.goal;
+}
+
+function celebrate() {
+  const box = $('confetti');
+  const colors = ['#f7dd72', '#f2a3b3', '#9fd0ef', '#a8dcb5', '#f2994a'];
+  box.replaceChildren(...Array.from({ length: 60 }, (_, i) => {
+    const piece = document.createElement('i');
+    piece.style.left = Math.random() * 100 + '%';
+    piece.style.background = colors[i % colors.length];
+    piece.style.animationDelay = Math.random() * 0.5 + 's';
+    piece.style.animationDuration = 1.5 + Math.random() * 1.1 + 's';
+    return piece;
+  }));
+  setTimeout(() => box.replaceChildren(), 3200);
 }
 
 // 선생님이 모두 앉히기를 눌렀다. 서버가 정해 준 자리로 걸어가 앉는다.
@@ -629,31 +672,48 @@ function forceSit(seat) {
 const QUIZ_LIMIT = 15;
 
 function setupTeacher() {
-  let rows = store.get('quizDraft', null);
-  if (!Array.isArray(rows) || !rows.length) rows = [{ q: '', a: '' }];
-  const save = () => store.set('quizDraft', rows);
+  let draft = store.get('quizDraft2', null);
+  if (!draft || typeof draft !== 'object') {
+    const old = store.get('quizDraft', null);
+    draft = { goal: 50, mid: Array.isArray(old) ? old : [] };
+  }
+  for (const level of LEVELS) if (!Array.isArray(draft[level])) draft[level] = [];
+  if (!Number.isInteger(draft.goal) || draft.goal < 1 || draft.goal > 100) draft.goal = 50;
+  let tab = 'mid';
+  const save = () => store.set('quizDraft2', draft);
+
+  const renderTabs = () => {
+    for (const button of document.querySelectorAll('[data-level-tab]')) {
+      button.setAttribute('aria-pressed', button.dataset.levelTab === tab);
+      const count = draft[button.dataset.levelTab].filter((r) => r.q.trim() || r.a.trim()).length;
+      button.textContent = LEVEL_NAMES[button.dataset.levelTab] + (count ? ' ' + count : '');
+    }
+    $('btn-copy-mid').hidden = tab === 'mid';
+  };
 
   const renderRows = () => {
+    const rows = draft[tab];
+    if (!rows.length) rows.push({ q: '', a: '' });
+    renderTabs();
     $('teacher-rows').replaceChildren(...rows.map((row, i) => {
       const box = document.createElement('div');
       box.className = 'teacher-row';
       const q = document.createElement('input');
-      q.placeholder = `${i + 1}번 문제`;
+      q.placeholder = (i + 1) + '번 문제';
       q.maxLength = 80;
       q.value = row.q;
-      q.oninput = () => { row.q = q.value; save(); };
+      q.oninput = () => { row.q = q.value; save(); renderTabs(); };
       const a = document.createElement('input');
       a.placeholder = '정답';
       a.maxLength = 20;
       a.value = row.a;
-      a.oninput = () => { row.a = a.value; save(); };
+      a.oninput = () => { row.a = a.value; save(); renderTabs(); };
       const del = document.createElement('button');
       del.className = 'row-del';
       del.textContent = '×';
-      del.setAttribute('aria-label', `${i + 1}번 문제 지우기`);
+      del.setAttribute('aria-label', (i + 1) + '번 문제 지우기');
       del.onclick = () => {
         rows.splice(i, 1);
-        if (!rows.length) rows.push({ q: '', a: '' });
         save();
         renderRows();
       };
@@ -663,6 +723,26 @@ function setupTeacher() {
     $('btn-row-add').hidden = rows.length >= QUIZ_LIMIT;
   };
 
+  const readGoal = () => {
+    const goal = Number($('teacher-goal').value);
+    if (!Number.isInteger(goal) || goal < 1 || goal > 100) {
+      toast('목표 게이지는 1~100 사이 숫자로 적어 주세요');
+      return null;
+    }
+    draft.goal = goal;
+    save();
+    return goal;
+  };
+
+  for (const button of document.querySelectorAll('[data-level-tab]')) {
+    button.onclick = () => { tab = button.dataset.levelTab; renderRows(); };
+  }
+  $('btn-copy-mid').onclick = () => {
+    draft[tab] = draft.mid.map((r) => ({ q: r.q, a: r.a }));
+    save();
+    renderRows();
+  };
+
   $('btn-sit-all').onclick = () => {
     net.send({ t: 'sitAll' });
     toast('학생들을 자리에 앉혔어요');
@@ -670,34 +750,48 @@ function setupTeacher() {
   $('btn-teach').onclick = () => {
     closePopovers();
     closePanels();
+    $('teacher-goal').value = draft.goal;
     renderRows();
     $('teacher-dialog').hidden = false;
   };
   $('teacher-close').onclick = () => { $('teacher-dialog').hidden = true; };
   $('btn-row-add').onclick = () => {
-    rows.push({ q: '', a: '' });
+    draft[tab].push({ q: '', a: '' });
     save();
     renderRows();
     $('teacher-rows').lastElementChild.querySelector('input').focus();
   };
+  $('btn-gauge-reset').onclick = () => {
+    const goal = readGoal();
+    if (goal) {
+      net.send({ t: 'gaugeSet', goal, reset: true });
+      toast('협동 게이지를 처음부터 시작해요');
+    }
+  };
   $('btn-quiz-send').onclick = () => {
-    const items = rows.map((r) => ({ q: r.q.trim(), a: r.a.trim() })).filter((r) => r.q || r.a);
-    if (!items.length || items.some((r) => !r.q || !r.a)) {
-      toast('문제와 정답을 모두 적어 주세요');
+    const goal = readGoal();
+    if (!goal) return;
+    const sets = {};
+    for (const level of LEVELS) {
+      sets[level] = draft[level].map((r) => ({ q: r.q.trim(), a: r.a.trim() })).filter((r) => r.q || r.a);
+      if (sets[level].some((r) => !r.q || !r.a)) {
+        tab = level;
+        renderRows();
+        toast(LEVEL_NAMES[level] + ' 단계에 문제나 정답이 빈 줄이 있어요');
+        return;
+      }
+    }
+    if (!LEVELS.some((level) => sets[level].length)) {
+      toast('문제를 하나 이상 적어 주세요');
       return;
     }
-    net.send({ t: 'quiz', items });
+    net.send({ t: 'quiz', sets, goal });
     $('teacher-dialog').hidden = true;
-    progressData = null;
-    renderProgress();
     $('result-dialog').hidden = false;
   };
   const endQuiz = () => {
     net.send({ t: 'quizEnd' });
-    progressData = null;
-    renderProgress();
-    $('result-dialog').hidden = true;
-    toast('문제를 끝냈어요');
+    toast('문제를 끝냈어요. 게이지는 그대로 이어져요');
   };
   $('btn-quiz-end').onclick = endQuiz;
   $('btn-result-end').onclick = endQuiz;

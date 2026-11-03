@@ -33,7 +33,7 @@ function createRoom() {
   do code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
   while (rooms.has(code));
   // hostToken은 교실을 만든 선생님만 갖는다. 이 값을 보내야 교사 기능을 쓸 수 있다.
-  const room = { code, hostToken: randomBytes(16).toString('hex'), players: new Map(), emptySince: Date.now(), quiz: null, results: new Map(), focus: false };
+  const room = { code, hostToken: randomBytes(16).toString('hex'), players: new Map(), emptySince: Date.now(), quiz: null, results: new Map(), focus: false, levels: new Map(), gauge: { goal: 0, value: 0, base: 0, done: false } };
   rooms.set(code, room);
   return room;
 }
@@ -68,7 +68,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8 * 1024 });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 32 * 1024 });
 
 function broadcast(room, message, except) {
   const text = JSON.stringify(message);
@@ -100,19 +100,65 @@ function setFocus(room, on) {
   broadcast(room, { t: 'focus', on });
 }
 
-// 학생별로 몇 문제를 풀고 몇 개 맞혔는지. 한 문제는 처음 낸 답만 점수에 들어간다.
+// 수준은 상/중/하 세 단계이고 선생님이 학생(이름)별로 정한다. 정하지 않으면 중이다.
+const LEVELS = ['high', 'mid', 'low'];
+const levelOf = (room, name) => room.levels.get(name) ?? 'mid';
+
+// 그 수준 문제가 비어 있으면 중, 상, 하 순서로 있는 것을 쓴다.
+function setFor(room, level) {
+  for (const l of [level, 'mid', 'high', 'low']) if (room.quiz.sets[l].length) return room.quiz.sets[l];
+  return [];
+}
+
+// 이번 문제 세트를 받는 학생의 기록을 만든다. 이미 있으면(다시 들어온 경우) 그대로 쓴다.
+function enrollStudent(room, name) {
+  if (!room.quiz || room.results.has(name)) return room.results.get(name);
+  const level = levelOf(room, name);
+  const entry = { level, set: setFor(room, level), answers: new Map() };
+  room.results.set(name, entry);
+  return entry;
+}
+
+function sendGauge(room, target) {
+  const { goal, value } = room.gauge;
+  const message = { t: 'gauge', goal, value: Math.round(value * 10) / 10 };
+  if (target) send(target, message);
+  else broadcast(room, message);
+}
+
+// 모든 학생이 같은 몫을 채운다. 각 학생이 낸 기여는 '내 문제 중 맞힌 비율'이고, 세트가 채울 수 있는 칸은 게이지의 남은 칸이다.
+// 그래서 어느 수준이든 다 맞히면 같은 만큼 채운다. 게이지는 줄어들지 않는다.
+function updateGauge(room) {
+  const g = room.gauge;
+  if (!g.goal || !room.quiz || room.results.size === 0) return;
+  let sum = 0;
+  for (const entry of room.results.values()) {
+    if (!entry.set.length) continue;
+    sum += [...entry.answers.values()].filter(Boolean).length / entry.set.length;
+  }
+  const next = Math.min(g.goal, g.base + (sum * (g.goal - g.base)) / room.results.size);
+  if (next <= g.value) return;
+  g.value = next;
+  sendGauge(room);
+  if (g.value >= g.goal && !g.done) {
+    g.done = true;
+    broadcast(room, { t: 'gaugeFull' });
+  }
+}
+
+// 선생님에게 학생 명단, 수준, 문제별 맞고 틀림을 보낸다. 한 문제는 처음 낸 답만 점수에 들어간다.
 function sendProgress(room) {
-  if (!room.quiz) return;
   const rows = new Map();
   for (const p of room.players.values()) if (!p.teacher) rows.set(p.name, { name: p.name, here: true });
   for (const name of room.results.keys()) if (!rows.has(name)) rows.set(name, { name, here: false });
   const list = [...rows.values()].map((row) => {
-    const answers = room.results.get(row.name);
-    const marks = room.quiz.map((_, i) => (answers?.has(i) ? (answers.get(i) ? 'o' : 'x') : '-')).join('');
-    return { ...row, marks };
+    const level = levelOf(room, row.name);
+    const entry = room.results.get(row.name);
+    const marks = entry ? entry.set.map((_, i) => (entry.answers.has(i) ? (entry.answers.get(i) ? 'o' : 'x') : '-')).join('') : '';
+    return { ...row, level, next: !!entry && entry.level !== level, marks };
   });
   list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-  sendTeachers(room, { t: 'progress', total: room.quiz.length, rows: list });
+  sendTeachers(room, { t: 'progress', quiz: !!room.quiz, rows: list });
 }
 
 const finite = (value, min, max) => (Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : null);
@@ -145,17 +191,29 @@ function seatEveryone(room) {
   }
 }
 
-// 선생님이 보낸 문제 목록을 다듬는다. 글자 수와 개수를 제한한다.
-function cleanQuiz(items) {
-  if (!Array.isArray(items) || items.length === 0 || items.length > 15) return null;
-  const clean = [];
-  for (const item of items) {
-    const q = typeof item?.q === 'string' ? item.q.trim().slice(0, 80) : '';
-    const a = typeof item?.a === 'string' ? item.a.trim().slice(0, 20) : '';
-    if (!q || !a) return null;
-    clean.push({ q, a });
+// 선생님이 보낸 수준별 문제를 다듬는다. 단계마다 15개까지, 글자 수도 제한한다. 모두 비어 있으면 받지 않는다.
+function cleanQuizSets(sets) {
+  if (sets === null || typeof sets !== 'object') return null;
+  const clean = {};
+  for (const level of LEVELS) {
+    const items = sets[level] ?? [];
+    if (!Array.isArray(items) || items.length > 15) return null;
+    clean[level] = [];
+    for (const item of items) {
+      const q = typeof item?.q === 'string' ? item.q.trim().slice(0, 80) : '';
+      const a = typeof item?.a === 'string' ? item.a.trim().slice(0, 20) : '';
+      if (!q || !a) return null;
+      clean[level].push({ q, a });
+    }
   }
-  return clean;
+  return LEVELS.some((level) => clean[level].length) ? clean : null;
+}
+
+const cleanGoal = (goal) => (Number.isInteger(goal) && goal >= 1 && goal <= 100 ? goal : null);
+
+function sendQuizTo(room, player) {
+  const entry = enrollStudent(room, player.name);
+  send(player, { t: 'quiz', qs: entry.set.map((item) => item.q) });
 }
 
 function handle(player, room, msg) {
@@ -170,15 +228,22 @@ function handle(player, room, msg) {
       break;
     case 'quiz': {
       if (!player.teacher) break;
-      const quiz = cleanQuiz(msg.items);
-      if (!quiz) break;
-      room.quiz = quiz;
+      const sets = cleanQuizSets(msg.sets);
+      const goal = cleanGoal(msg.goal);
+      if (!sets || !goal) break;
+      room.quiz = { sets };
       room.results = new Map();
-      setFocus(room, true);
-      const qs = quiz.map((item) => item.q);
-      for (const p of room.players.values()) if (!p.teacher) send(p, { t: 'quiz', qs });
-      send(player, { t: 'quizSent', count: [...room.players.values()].filter((p) => !p.teacher).length });
+      const g = room.gauge;
+      g.goal = goal;
+      g.value = Math.min(g.value, goal);
+      g.base = g.value;
+      g.done = g.value >= goal;
+      const students = [...room.players.values()].filter((p) => !p.teacher);
+      for (const p of students) sendQuizTo(room, p);
+      sendGauge(room);
+      send(player, { t: 'quizSent', count: students.length });
       sendProgress(room);
+      setFocus(room, true);
       break;
     }
     case 'quizEnd':
@@ -186,18 +251,42 @@ function handle(player, room, msg) {
       room.quiz = null;
       room.results = new Map();
       broadcast(room, { t: 'quizEnd' }, player);
+      sendProgress(room);
       break;
     case 'answer': {
-      const item = room.quiz && Number.isInteger(msg.i) ? room.quiz[msg.i] : null;
+      const entry = player.teacher || !room.quiz ? null : room.results.get(player.name);
+      const item = entry && Number.isInteger(msg.i) ? entry.set[msg.i] : null;
       if (!item || typeof msg.v !== 'string') break;
       const ok = normalizeAnswer(msg.v) === normalizeAnswer(item.a);
       send(player, { t: 'result', i: msg.i, ok, answer: item.a });
-      if (!player.teacher) {
-        if (!room.results.has(player.name)) room.results.set(player.name, new Map());
-        const answers = room.results.get(player.name);
-        if (!answers.has(msg.i)) answers.set(msg.i, ok);
-        sendProgress(room);
+      if (!entry.answers.has(msg.i)) entry.answers.set(msg.i, ok);
+      updateGauge(room);
+      sendProgress(room);
+      break;
+    }
+    case 'level': {
+      if (!player.teacher || typeof msg.name !== 'string' || !LEVELS.includes(msg.level)) break;
+      room.levels.set(msg.name, msg.level);
+      // 아직 한 문제도 안 푼 학생은 바로 새 수준 문제를 받는다. 푼 학생은 다음 문제 세트부터 바뀐다.
+      const entry = room.results.get(msg.name);
+      if (room.quiz && entry && entry.answers.size === 0) {
+        entry.level = msg.level;
+        entry.set = setFor(room, msg.level);
+        for (const p of room.players.values()) if (!p.teacher && p.name === msg.name) sendQuizTo(room, p);
       }
+      sendProgress(room);
+      break;
+    }
+    case 'gaugeSet': {
+      if (!player.teacher) break;
+      const goal = cleanGoal(msg.goal);
+      if (!goal) break;
+      const g = room.gauge;
+      g.goal = goal;
+      g.value = msg.reset ? 0 : Math.min(g.value, goal);
+      g.base = g.value;
+      g.done = g.value >= goal;
+      sendGauge(room);
       break;
     }
     case 'pos': {
@@ -270,7 +359,8 @@ wss.on('connection', (socket, req) => {
         t: 'welcome',
         id: player.id,
         teacher: player.teacher,
-        quiz: !player.teacher && room.quiz ? room.quiz.map((item) => item.q) : null,
+        quiz: !player.teacher && room.quiz ? enrollStudent(room, player.name).set.map((item) => item.q) : null,
+        gauge: room.gauge.goal ? { goal: room.gauge.goal, value: Math.round(room.gauge.value * 10) / 10 } : null,
         focus: room.focus,
         players: [...room.players.values()].map((p) => publicPlayer(p, player.teacher)),
       }));

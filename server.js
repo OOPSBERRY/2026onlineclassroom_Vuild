@@ -158,7 +158,7 @@ function sendProgress(room) {
     const level = levelOf(room, row.name);
     const entry = room.results.get(row.name);
     const marks = entry ? entry.set.map((_, i) => (entry.answers.has(i) ? (entry.answers.get(i) ? 'o' : 'x') : '-')).join('') : '';
-    return { ...row, level, next: !!entry && entry.level !== level, marks };
+    return { ...row, level, used: entry?.level, next: !!entry && entry.level !== level, marks };
   });
   list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   sendTeachers(room, { t: 'progress', quiz: !!room.quiz, rows: list });

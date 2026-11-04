@@ -65,7 +65,7 @@
 
     <section id="panel-look" class="glass panel" hidden aria-label="내 모습 꾸미기" data-i18n-aria="lookAria">
       <h2 data-i18n="myLook">내 모습</h2>
-      <div class="field">
+      <div class="field" id="field-nick">
         <span data-i18n="nameField">이름</span>
         <div class="nick-row"><strong id="nick-text"></strong><button id="btn-nick" class="chip" data-i18n="reroll">다시 뽑기</button></div>
       </div>
@@ -73,8 +73,8 @@
       <div class="field"><span data-i18n="hairColor">머리 색</span><div id="opt-hairColor" class="swatches"></div></div>
       <div class="field"><span data-i18n="skin">피부</span><div id="opt-skin" class="swatches"></div></div>
       <div class="field"><span data-i18n="shirt">옷</span><div id="opt-shirt" class="swatches"></div></div>
-      <div class="field"><span data-i18n="bag">가방</span><div id="opt-bag" class="swatches"></div></div>
-      <label class="toggle"><input id="opt-hat" type="checkbox"> <span data-i18n="hat">노란 모자 쓰기</span></label>
+      <div class="field" id="field-bag"><span data-i18n="bag">가방</span><div id="opt-bag" class="swatches"></div></div>
+      <label class="toggle" id="field-hat"><input id="opt-hat" type="checkbox"> <span data-i18n="hat">노란 모자 쓰기</span></label>
     </section>
 
     <section id="panel-settings" class="glass panel" hidden aria-label="설정" data-i18n-aria="settings">
@@ -203,8 +203,11 @@
     </div>
     <p id="result-empty" class="study-lead">학생이 들어오면 여기에 나타나요. 상/중/하 수준을 눌러 정해 주세요.</p>
     <div id="result-rows" class="result-rows"></div>
-    <p class="note">수준은 선생님 화면에만 보여요. 문제를 아직 안 푼 학생은 바로 바뀌고, 푼 학생은 다음 문제 세트부터 바뀌어요. O 맞음 · X 틀림 · · 아직 안 풂. 한 문제는 처음 낸 답만 점수에 들어가요. 학생이 나가도 결과는 남아요.</p>
-    <div class="study-actions"><button id="btn-result-end" class="study-dan">문제 끝내기</button></div>
+    <p class="note">수준은 선생님 화면에만 보여요. 문제를 아직 안 푼 학생은 바로 바뀌고, 푼 학생은 다음 문제 세트부터 바뀌어요. O 맞음 · X 틀림 · · 아직 안 풂. 한 문제는 처음 낸 답만 점수에 들어가요. 학생이 나가도 결과는 남아요. 문제를 끝낸 뒤에도 이 화면을 닫지 않았다면 마지막 결과를 내려받을 수 있어요. 새로고침하면 사라져요.</p>
+    <div class="study-actions">
+      <button id="btn-result-csv" class="study-dan all">엑셀로 내려받기 (CSV)</button>
+      <button id="btn-result-end" class="study-dan">문제 끝내기</button>
+    </div>
   </section>
 
   <section id="guide-dialog" class="glass study-dialog teacher-dialog guide-dialog" role="dialog" aria-labelledby="guide-title" hidden>

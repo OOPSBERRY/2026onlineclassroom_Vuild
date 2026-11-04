@@ -79,6 +79,7 @@ class Actor {
     this.id = id;
     this.kind = kind;
     this.avatar = new Avatar(lookValue);
+    if (teacher) this.avatar.setAdult(true);
     this.x = 2.3;
     this.z = 2.9;
     this.r = Math.PI;
@@ -463,7 +464,7 @@ async function boot() {
   clickRing.position.y = 0.012;
   scene.add(clickRing);
 
-  player = new Actor({ id: 'me', lookValue: look, nickValue: nick, kind: 'me' });
+  player = new Actor({ id: 'me', lookValue: look, nickValue: nick, kind: 'me', teacher: !!store.get('host.' + roomCode, null) });
   // 함께 들어와도 겹치지 않게 책상 사이 통로 곳곳에서 시작한다.
   player.x = world.aisles[Math.floor(Math.random() * world.aisles.length)] + THREE.MathUtils.randFloatSpread(0.4);
   player.z = THREE.MathUtils.randFloat(-1.5, 3.2);
@@ -537,7 +538,9 @@ function connect() {
       setFocus(!!msg.focus);
       setGauge(msg.gauge);
       player.teacher = isTeacher;
+      player.avatar.setAdult(isTeacher);
       player.renderPlate();
+      renderLookOptions();
       $('teacher-bar').hidden = !isTeacher;
       if (isTeacher) guideIfDue();
       $('btn-study').hidden = isTeacher;
@@ -585,6 +588,7 @@ function connect() {
     },
     progress(msg) {
       progressData = msg;
+      if (msg.quiz) lastQuizResult = msg;
       renderProgress();
     },
     noname() {
@@ -634,6 +638,8 @@ function sendPosition(dt) {
 // ---------- 선생님 기능 ----------
 
 let progressData = null;
+let lastQuizResult = null;
+let currentGauge = null;
 
 // 선생님이 앉히거나 문제를 내면 학생은 종이비행기를 날릴 수 없다. 선생님은 늘 날릴 수 있다.
 function setFocus(on) {
@@ -644,6 +650,49 @@ function setFocus(on) {
 }
 
 const LEVELS = ['high', 'mid', 'low'];
+
+// 학생 결과를 엑셀에서 바로 열 수 있는 CSV 파일로 내려받는다. 이름은 이 컴퓨터에서만 파일로 만들어지고 서버에는 저장되지 않는다.
+function downloadResults() {
+  const data = progressData?.quiz ? progressData : lastQuizResult;
+  const rows = (data?.rows ?? []).filter((row) => row.marks);
+  if (!rows.length) {
+    toast('내려받을 결과가 없어요. 문제를 보낸 뒤에 눌러 주세요');
+    return;
+  }
+  const cell = (value) => {
+    let text = String(value ?? '');
+    if (/^[=+\-@]/.test(text)) text = "'" + text;
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const date = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  const stamp = date + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+  const gauge = currentGauge ? Math.floor(Math.min(currentGauge.value, currentGauge.goal)) + '/' + currentGauge.goal : '';
+  const longest = Math.max(...rows.map((row) => row.marks.length));
+  const lines = [
+    ['방 코드', roomCode, '내려받은 시각', stamp, '협동 게이지', gauge].map(cell).join(','),
+    '',
+    ['이름', '수준', '푼 문제', '맞힌 개수', '전체 문제', '정답률(%)', ...Array.from({ length: longest }, (_, i) => (i + 1) + '번')].map(cell).join(','),
+  ];
+  for (const row of rows) {
+    const marks = [...row.marks];
+    const answered = marks.filter((c) => c !== '-').length;
+    const right = marks.filter((c) => c === 'o').length;
+    const cells = Array.from({ length: longest }, (_, i) => (marks[i] === 'o' ? 'O' : marks[i] === 'x' ? 'X' : ''));
+    lines.push([row.name, LEVEL_NAMES[row.used ?? row.level], answered, right, marks.length, Math.round((right / marks.length) * 100), ...cells].map(cell).join(','));
+  }
+  // 앞의 BOM은 엑셀이 한글을 깨뜨리지 않고 읽게 해 준다.
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = '학생결과_' + roomCode + '_' + date + '.csv';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  toast('엑셀 파일(CSV)을 내려받았어요');
+}
 const LEVEL_NAMES = { high: '상', mid: '중', low: '하' };
 
 // 학생 현황 표: 이름, 수준(선생님이 고른다), 문제별 맞고 틀림, 맞힌 개수.
@@ -693,6 +742,7 @@ function renderProgress() {
 
 // 협동 게이지. 모두가 보고, 선생님이 정한 목표까지 학생들이 함께 채운다.
 function setGauge(gauge) {
+  currentGauge = gauge;
   $('gauge').hidden = !gauge;
   if (!gauge) return;
   const value = Math.min(gauge.value, gauge.goal);
@@ -856,6 +906,7 @@ function setupTeacher() {
     toast('문제를 끝냈어요. 게이지는 그대로 이어져요');
   };
   $('btn-quiz-end').onclick = endQuiz;
+  $('btn-result-csv').onclick = downloadResults;
   $('btn-result-end').onclick = endQuiz;
   $('btn-results').onclick = () => {
     renderProgress();
@@ -1175,7 +1226,11 @@ function saveLook() {
 }
 
 function renderLookOptions() {
-  const hairs = HAIR_BY_GENDER.find((list) => list.includes(look.hair));
+  // 선생님은 어른이라 가방, 모자, 이름 뽑기, 어린이 머리(양갈래)를 고르지 않는다.
+  $('field-bag').hidden = isTeacher;
+  $('field-hat').hidden = isTeacher;
+  $('field-nick').hidden = isTeacher;
+  const hairs = HAIR_BY_GENDER.find((list) => list.includes(look.hair)).filter((i) => !(isTeacher && i === 3));
   $('opt-hair').replaceChildren(...hairs.map((i) => {
     const button = document.createElement('button');
     button.className = 'chip';
@@ -1404,7 +1459,7 @@ function updateCamera(dt) {
 function updateLabel(actor) {
   const seated = actor.avatar.seated;
   const jumpLift = actor.avatar.airborne ? actor.avatar.root.position.y : 0;
-  tmp.set(actor.x, (seated ? 1.42 : 1.5) + jumpLift, actor.z).project(camera);
+  tmp.set(actor.x, (seated ? 1.42 : 1.5) * actor.avatar.heightScale + jumpLift, actor.z).project(camera);
   const visible = tmp.z < 1 && Math.abs(tmp.x) < 1.15 && Math.abs(tmp.y) < 1.15;
   actor.label.style.display = visible ? '' : 'none';
   if (!visible) return;

@@ -4,6 +4,9 @@ import { LOOKS } from './data.js';
 const SKIN_ROUGH = 0.62;
 const JUMP_TIME = 0.55;
 const JUMP_HEIGHT = 0.55;
+const ADULT_SCALE = 1.22;
+const ADULT_LEG = 1.25;
+const ADULT_ARM = 1.2;
 const damp = (current, target, rate, dt) => current + (target - current) * (1 - Math.exp(-rate * dt));
 const std = (color, roughness = 0.75) => new THREE.MeshStandardMaterial({ color, roughness });
 
@@ -17,6 +20,7 @@ const geo = {
   brim: new THREE.CylinderGeometry(0.3, 0.3, 0.018, 24),
   smile: new THREE.TorusGeometry(0.045, 0.009, 6, 14, Math.PI),
   strap: new THREE.BoxGeometry(0.035, 0.28, 0.02),
+  tie: new THREE.BoxGeometry(0.05, 0.2, 0.02),
   page: new THREE.BoxGeometry(0.17, 0.012, 0.24),
   spine: new THREE.BoxGeometry(0.36, 0.008, 0.25),
   pencil: new THREE.CylinderGeometry(0.009, 0.009, 0.15, 6),
@@ -37,46 +41,70 @@ export class Avatar {
     this.anim = { walk: 0, sit: 0, phase: Math.random() * 6, emote: null, emoteTime: 0, idle: Math.random() * 6, jump: -1 };
     this.moving = false;
     this.seated = false;
+    this.adult = false;
     this.setLook(look);
+  }
+
+  // 선생님은 어른 모습이다: 키가 크고 머리가 작고, 가방과 모자가 없다.
+  setAdult(adult) {
+    if (this.adult === adult) return;
+    this.adult = adult;
+    this.setLook(this.look);
+  }
+
+  get heightScale() {
+    return this.adult ? ADULT_SCALE : 1;
   }
 
   setLook(look) {
     this.look = look;
+    const adult = this.adult;
+    const hip = adult ? 0.05 + 0.31 * ADULT_LEG : 0.36;
+    this.armBase = adult ? ADULT_ARM : 1;
+    this.wearsHat = !!look.hat && !adult;
+    this.root.scale.setScalar(adult ? ADULT_SCALE : 1);
     while (this.root.children.length) this.root.remove(this.root.children[0]);
 
     const skin = std(LOOKS.skin[look.skin], SKIN_ROUGH);
     const hair = std(LOOKS.hairColor[look.hairColor], 0.72);
     const shirt = std(LOOKS.shirt[look.shirt]);
-    const pants = std(0x46546b);
+    const pants = std(adult ? 0x2f3440 : 0x46546b);
     const bag = std(LOOKS.bag[look.bag], 0.6);
     const white = std(0xf7f4ea);
+    const shoe = adult ? std(0x3b2a20, 0.5) : white;
     const dark = std(0x241a15, 0.3);
     const blush = std(0xf0987f, 0.8);
 
     // 다리
     this.legL = new THREE.Group();
     this.legR = new THREE.Group();
-    this.legL.position.set(-0.085, 0.36, 0);
-    this.legR.position.set(0.085, 0.36, 0);
+    this.legL.position.set(-0.085, hip, 0);
+    this.legR.position.set(0.085, hip, 0);
     for (const leg of [this.legL, this.legR]) {
       mesh(geo.leg, pants, leg, 0, -0.14, 0);
-      mesh(geo.ball, white, leg, 0, -0.31, 0.03, 0.085, 0.055, 0.125);
+      mesh(geo.ball, shoe, leg, 0, -0.31, 0.03, 0.085, 0.055, 0.125);
+      leg.scale.y = adult ? ADULT_LEG : 1;
       this.root.add(leg);
     }
 
     // 몸통 (엉덩이를 축으로 숙인다)
     this.body = new THREE.Group();
-    this.body.position.y = 0.36;
+    this.body.position.y = hip;
     this.root.add(this.body);
     mesh(geo.torso, shirt, this.body, 0, 0.17, 0, 1, 1, 0.82);
     mesh(geo.ball, pants, this.body, 0, 0.02, 0, 0.155, 0.075, 0.13);
 
-    // 가방과 끈
-    mesh(geo.ball, bag, this.body, 0, 0.21, -0.2, 0.17, 0.2, 0.09);
-    mesh(geo.ball, std(0xf0e6cf, 0.7), this.body, 0, 0.145, -0.275, 0.105, 0.07, 0.03);
-    for (const side of [-1, 1]) {
-      const strap = mesh(geo.strap, bag, this.body, side * 0.1, 0.22, 0.128);
-      strap.rotation.x = 0.08;
+    if (adult) {
+      // 어른은 가방 대신 넥타이를 맨다.
+      mesh(geo.tie, std(0xa8374a, 0.6), this.body, 0, 0.2, 0.128);
+    } else {
+      // 가방과 끈
+      mesh(geo.ball, bag, this.body, 0, 0.21, -0.2, 0.17, 0.2, 0.09);
+      mesh(geo.ball, std(0xf0e6cf, 0.7), this.body, 0, 0.145, -0.275, 0.105, 0.07, 0.03);
+      for (const side of [-1, 1]) {
+        const strap = mesh(geo.strap, bag, this.body, side * 0.1, 0.22, 0.128);
+        strap.rotation.x = 0.08;
+      }
     }
 
     // 팔
@@ -92,7 +120,8 @@ export class Avatar {
 
     // 머리
     this.head = new THREE.Group();
-    this.head.position.y = 0.62;
+    this.head.position.y = adult ? 0.6 : 0.62;
+    this.head.scale.setScalar(adult ? 0.84 : 1);
     this.body.add(this.head);
     mesh(geo.head, skin, this.head, 0, 0, 0, 1, 0.96, 0.96);
     this.buildHair(look, hair);
@@ -100,8 +129,10 @@ export class Avatar {
     const eyeY = -0.015;
     mesh(geo.ball, dark, this.head, -0.11, eyeY, 0.253, 0.026, 0.033, 0.014);
     mesh(geo.ball, dark, this.head, 0.11, eyeY, 0.253, 0.026, 0.033, 0.014);
-    mesh(geo.ball, blush, this.head, -0.17, -0.075, 0.207, 0.04, 0.024, 0.012);
-    mesh(geo.ball, blush, this.head, 0.17, -0.075, 0.207, 0.04, 0.024, 0.012);
+    if (!adult) {
+      mesh(geo.ball, blush, this.head, -0.17, -0.075, 0.207, 0.04, 0.024, 0.012);
+      mesh(geo.ball, blush, this.head, 0.17, -0.075, 0.207, 0.04, 0.024, 0.012);
+    }
     const mouth = mesh(geo.smile, std(0x8a3f33, 0.6), this.head, 0, -0.08, 0.265);
     mouth.rotation.z = Math.PI;
     mouth.scale.y = 0.85;
@@ -116,7 +147,7 @@ export class Avatar {
     this.pencil = mesh(geo.pencil, std(0xe8b23a, 0.5), this.armR, 0, -0.26, 0.05);
     this.pencil.rotation.x = 0.9;
 
-    if (look.hat) {
+    if (this.wearsHat) {
       const yellow = std(0xf5cd3a, 0.6);
       mesh(geo.hairCap, yellow, this.head, 0, 0.07, -0.01, 1.07, 0.95, 1.08);
       const brim = mesh(geo.brim, yellow, this.head, 0, 0.115, 0.085, 1.16, 1, 1.2);
@@ -128,7 +159,9 @@ export class Avatar {
   buildHair(look, hair) {
     const cap = mesh(geo.hairCap, hair, this.head, 0, 0.005, -0.012);
     cap.rotation.x = -0.38;
-    switch (look.hair) {
+    // 양갈래는 어린이 머리라 어른에게는 단발로 보인다.
+    const style = this.adult && look.hair === 3 ? 2 : look.hair;
+    switch (style) {
       case 1: { // 까까머리: 머리에 붙고 색이 옅다
         const color = new THREE.Color(LOOKS.hairColor[look.hairColor]).lerp(new THREE.Color(LOOKS.skin[look.skin]), 0.35);
         cap.material = std(color, 0.9);
@@ -147,7 +180,7 @@ export class Avatar {
         }
         break;
       case 4: // 똥머리 (모자를 쓰면 가려진다)
-        if (!look.hat) mesh(geo.ball, hair, this.head, 0, 0.33, -0.06, 0.1);
+        if (!this.wearsHat) mesh(geo.ball, hair, this.head, 0, 0.33, -0.06, 0.1);
         break;
       default:
         break;
@@ -263,10 +296,12 @@ export class Avatar {
     this.legR.rotation.x = legR;
     this.armL.rotation.set(armLX, 0, armLZ);
     this.armR.rotation.set(armRX, 0, armRZ);
-    this.armL.scale.y = armLStretch;
-    this.armR.scale.y = armRStretch;
-    this.armL.userData.hand.scale.y = 0.056 / armLStretch;
-    this.armR.userData.hand.scale.y = 0.056 / armRStretch;
+    const stretchL = armLStretch * this.armBase;
+    const stretchR = armRStretch * this.armBase;
+    this.armL.scale.y = stretchL;
+    this.armR.scale.y = stretchR;
+    this.armL.userData.hand.scale.y = 0.056 / stretchL;
+    this.armR.userData.hand.scale.y = 0.056 / stretchR;
     this.book.visible = a.sit > 0.85;
     this.pencil.visible = a.sit > 0.85 && a.emote !== 'raise' && a.emote !== 'clap' && a.emote !== 'throw';
     this.body.rotation.x = bodyX;
